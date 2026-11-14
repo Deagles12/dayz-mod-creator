@@ -5,6 +5,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Deagles12/dayz-mod-creator/releases/latest"><img src="https://img.shields.io/badge/Version-v2.1.0-25864D" alt="Version v2.1.0"></a>
+</p>
+<p align="center"><strong><a href="https://github.com/Deagles12/dayz-mod-creator/releases/latest">Download latest release</a></strong></p>
+
+<p align="center">
   <strong>Build, sign, deploy, and test DayZ mods with one keypress.</strong>
 </p>
 
