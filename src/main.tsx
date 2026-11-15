@@ -459,7 +459,7 @@ function App() {
       ? tr('Оновити локально + Workshop','Update locally + Workshop') : tr('Оновити локально','Update locally')}<kbd>F5</kbd></button>
   return <div className="app">
     <header className="titlebar" data-tauri-drag-region>
-      <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.1</small></span>
+      <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.2</small></span>
       {project&&<span className="title-context" data-tauri-drag-region>{nameOf(project.root)} · {ready?tr('Готовий до збірки','Ready to build'):tr('Потрібне налаштування','Setup needed')}</span>}
       <div className="segments" aria-label={tr('Мова','Language')}>
         <button aria-pressed={lng==='uk'} onClick={()=>void changePrefs({language:'uk'})}>UA</button>
