@@ -1,11 +1,10 @@
 """Shared machine settings and verified local test workflow."""
 import re
 import subprocess
-import time
 from pathlib import Path
 
 from locale_studio import tr
-from pipeline import Pipeline, digest, linked, lines, require, save, steam_installs, tree
+from pipeline import Pipeline, digest, linked, lines, load, require, save, steam_installs, tree
 
 MACHINE = ('tools','server','client','server_exe','client_exe','config','profiles','client_profiles',
            'port','address','timeout','base','server_only','server_args','client_args','sign','private','public',
@@ -23,8 +22,9 @@ class TestPipeline(Pipeline):
         self.report = report
         for target in self.targets:
             self.validate_target(target)
-        if settings['shared'] and settings.get('client_mods_root', '').strip():
-            requested = self.path('client_mods_root', self.client)
+        if settings['shared']:
+            requested = (self.path('client_mods_root', self.client)
+                         if settings.get('client_mods_root', '').strip() else self.state / 'test-client')
             resolved = requested.resolve()
             if (any(part.lower() in {'workshop', '!workshop'} for part in requested.parts + resolved.parts)
                     or any(resolved.is_relative_to(path.resolve()) for path in workshop_locations())):
@@ -60,27 +60,25 @@ class TestPipeline(Pipeline):
         return list(result.values())
 
     def dependencies(self, key):
-        resolved = []
-        candidates = [self.server, self.client]
-        workshop = list(workshop_locations())
-        for entry in lines(self.s[key]):
-            if re.fullmatch(r'(?:workshop:)?\d+', entry, re.I):
-                item = entry.split(':')[-1]
-                path = next((root / item for root in workshop if (root / item).is_dir()), None)
-                if path is None:
-                    raise ValueError(tr('Підпишись на Workshop item {} у Steam і дочекайся завантаження.',
-                                        'Subscribe to Workshop item {} in Steam and wait for the download.').format(item))
-            else:
-                path = next((root / entry for root in candidates if (root / entry).is_dir()), self.server / entry)
-            path = path.resolve()
-            if ';' in str(path) or not path.is_dir() or not any((path / 'Addons').glob('*.pbo')):
-                raise ValueError(tr('Залежність {} не містить PBO. Вибери папку встановленого мода або введи його Workshop ID.',
-                                    'Dependency {} has no PBO files. Choose an installed mod folder or enter its Workshop ID.').format(path))
-            if path in self.targets:
-                raise ValueError(tr('Прибери поточний мод зі списку залежностей.', 'Remove this project’s mod from the dependency list.'))
-            if path not in resolved:
-                resolved.append(path)
-        return resolved
+        return list(dict.fromkeys(self.resolve_dependency(entry) for entry in lines(self.s[key])))
+
+    def resolve_dependency(self, entry):
+        if re.fullmatch(r'(?:workshop:)?\d+', entry, re.I):
+            item = entry.split(':')[-1]
+            path = next((root / item for root in workshop_locations() if (root / item).is_dir()), None)
+            if path is None:
+                raise ValueError(tr('Підпишись на Workshop item {} у Steam і дочекайся завантаження.',
+                                    'Subscribe to Workshop item {} in Steam and wait for the download.').format(item))
+        else:
+            path = next((root / entry for root in (self.server, self.client) if (root / entry).is_dir()),
+                        self.server / entry)
+        path = path.resolve()
+        if ';' in str(path) or not path.is_dir() or not any((path / 'Addons').glob('*.pbo')):
+            raise ValueError(tr('Залежність {} не містить PBO. Вибери папку встановленого мода або введи його Workshop ID.',
+                                'Dependency {} has no PBO files. Choose an installed mod folder or enter its Workshop ID.').format(path))
+        if path in self.targets:
+            raise ValueError(tr('Прибери поточний мод зі списку залежностей.', 'Remove this project’s mod from the dependency list.'))
+        return path
 
     def verified_install(self, manifest):
         self.install(manifest, self.dependency_keys())
@@ -105,45 +103,40 @@ class TestPipeline(Pipeline):
         self.report['files'] = list(manifest['files'])
         self.report['installed'] = True
 
-    def checkpoint_settings(self):
-        keys = ('addons','mod','addon_name','prefix','metadata','extra','pack','prep_exe','prep_args','sign','private','public')
-        return {key: self.s.get(key) for key in keys}
-
-    def source_snapshot(self):
-        result = {}
-        for folder in lines(self.s['addons']):
-            path = (self.root / folder).resolve()
-            if not path.is_relative_to(self.root):
-                raise ValueError(tr('Джерело має бути в папці проєкту.', 'Source must be in the project folder.'))
-            result[folder] = tree(path)
-        for file in [self.s.get('metadata', ''), *lines(self.s.get('extra', ''))]:
-            if file.strip():
-                result['file:' + file] = digest(require(self.root / file))
-        return result
+    def current_package(self, manifest):
+        package = self.verify(manifest)
+        if (manifest.get('id') != package.parent.name or
+                load(require(package.parent / 'manifest.json')) != manifest or
+                manifest.get('inputs') != self.build_inputs()):
+            raise ValueError(tr('Вихідні файли або параметри змінилися. Створи нову збірку через F5.',
+                                'Sources or build settings changed. Create a new build with F5.'))
+        return package
 
     def package_checkpoint(self, manifest):
         return dict(sources=self.source_snapshot(), settings=self.checkpoint_settings(), manifest=manifest,
                     installed=False, targets=list(map(str, self.targets)))
 
-    def test(self, resume=None, deploy_only=False):
+    def test(self, resume=None, deploy_only=False, start_client=None, publish_after=False):
         server, client, server_args, client_args, port, timeout, require_signing = self.game_settings()
         if require_signing and self.s['shared'] and not self.s['sign']:
             raise ValueError(tr('Увімкни підпис і вибери ключі у спільному профілі.',
                                 'Enable signing and choose keys in the shared profile.'))
+        self.dependency_keys()
+        if self.profiles.exists() and not self.profiles.is_dir():
+            raise NotADirectoryError(self.profiles)
         if resume and resume.get('settings') != self.checkpoint_settings():
             raise ValueError(tr('Налаштування пакета змінилися. Натисни «Зібрати та протестувати».',
                                 'Package settings changed. Click Build and test.'))
-        connection_timeout = int(self.s.get('connection_timeout') or 120)
-        if not 10 <= connection_timeout <= 600:
-            raise ValueError(tr('Час очікування клієнта має бути від 10 до 600 секунд.',
-                                'Client timeout must be between 10 and 600 seconds.'))
         if resume and resume.get('sources') != self.source_snapshot():
             raise ValueError(tr('Вихідні файли змінилися. Натисни «Зібрати та протестувати».',
                                 'Source files changed. Click Build and test.'))
         manifest = resume['manifest'] if resume else self.build()
         self.verify(manifest)
-        self.report.update(built=True, signed=manifest['signed'], files=list(manifest['files']))
+        if manifest.get('inputs'):
+            self.current_package(manifest)
+        self.report.update(built=True, signed=manifest['signed'], files=list(manifest['files']), buildId=manifest.get('id'))
         checkpoint = self.package_checkpoint(manifest)
+        checkpoint['publishAfter'] = publish_after
         save(self.state / 'package-checkpoint.json', checkpoint)
         checkpoint['installed'] = bool(resume and resume['installed'])
         if checkpoint['installed']:
@@ -186,27 +179,15 @@ class TestPipeline(Pipeline):
             save(self.state / 'tested.json', manifest)
             checkpoint.update(serverPid=process.pid, endpoint=server_args)
             save(self.state / 'retry.json', checkpoint)
-        offsets = {p: p.stat().st_size for p in self.profiles.glob('*.RPT')}
-        self.progress(5, ('Запускаю гру й перевіряю підключення', 'Launching the game and verifying its connection'))
-        subprocess.Popen([str(client), *client_args], cwd=client.parent)
-        self.report['clientLaunched'] = True
-        deadline = time.monotonic() + connection_timeout
-        while time.monotonic() < deadline:
-            if process is not None and process.poll() is not None:
-                raise RuntimeError(tr('Сервер завершився, поки клієнт підключався.', 'The server exited while the client was connecting.'))
-            if reuse_pid:
-                alive = self.ps(f'(Get-Process -Id {reuse_pid} -ErrorAction SilentlyContinue).Id')
-                if not alive:
-                    raise RuntimeError(tr('Сервер зупинився. Повтори запуск.', 'The server stopped. Retry startup.'))
-            for path in self.profiles.glob('*.RPT'):
-                with path.open('rb') as stream:
-                    stream.seek(offsets.get(path, 0))
-                    text = stream.read().decode('utf-8', errors='replace')
-                if re.search(r'(?im)^.*Player .*?(?:has connected\.|\(steamID=\d+.*?\) is connected)\s*$', text):
-                    self.report['connected'] = True
-                    save(self.state / 'deployment.json', checkpoint)
-                    (self.state / 'retry.json').unlink(missing_ok=True)
-                    return
-            time.sleep(2)
-        raise TimeoutError(tr('Гра запущена, але сервер не підтвердив підключення. Перевір Steam, запит пароля та повідомлення у грі.',
-                              'The game was launched but the server did not confirm a connection. Check Steam, the password prompt and any in-game messages.'))
+        save(self.state / 'deployment.json', checkpoint)
+        open_dayz = self.s.get('open_dayz', False) if start_client is None else start_client
+        if open_dayz:
+            self.progress(5, ('Запускаю DayZ', 'Launching DayZ'))
+            try:
+                subprocess.Popen([str(client), *client_args], cwd=client.parent)
+                self.report['clientLaunched'] = True
+            except OSError as error:
+                self.report['clientError'] = str(error)
+                self.log(f'Warning: {error}')
+        (self.state / 'retry.json').unlink(missing_ok=True)
+        return manifest

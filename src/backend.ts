@@ -1,9 +1,11 @@
 import { Command, type Child } from '@tauri-apps/plugin-shell'
 export type Settings = Record<string, string | boolean>
 export type Check = { key: string; ok: boolean; detail: string }
-export type Operation = { action: string; date: string; phase: number; status: 'failed' | 'complete'; warnings: number; seconds: number; built: boolean; signed: boolean; installed: boolean; serverReady: boolean; clientLaunched: boolean; connected: boolean; updated: string[]; files: string[]; log: string; error?: string; attention?: boolean }
-export type Details = { operations: Operation[]; packageReady: boolean; deployment: boolean; retry: boolean; checks: Check[]; dependencies: string[]; builds: { name: string; path: string; signed: boolean; tested: boolean; count: number }[]; backups: string[]; logs: string[]; rollback: boolean; tested: boolean }
+export type Operation = { action: string; date: string; phase: number; status: 'failed' | 'complete'; warnings: number; seconds: number; built: boolean; signed: boolean; installed: boolean; serverReady: boolean; clientLaunched: boolean; connected: boolean; updated: string[]; files: string[]; log: string; error?: string; attention?: boolean; buildId?: string; workshopStatus?: string; clientError?: string; next?: {action: string; buildId?: string}; remote?: { status: string; staging: string } }
+export type Destination = { buildId?: string; date?: string; status?: string; item?: string; changed?: boolean }
+export type Details = { commands: Record<string, string>; publication: Destination; published: Destination; workshopDraft: Destination; workshopItem: string; localBuild: Destination; remoteBuild: Destination; remoteChoice: Destination; sourcesChanged: boolean | null; operations: Operation[]; packageReady: boolean; deployment: boolean; retry: boolean; checks: Check[]; dependencies: string[]; dependencyState: {entry: string; kind: string; order: number; available: boolean; path?: string; error?: string}[]; builds: { name: string; path: string; signed: boolean; tested: boolean; count: number }[]; backups: string[]; logs: string[]; rollback: boolean; tested: boolean }
 export type Project = { root: string; configured: boolean; settings: Settings; details: Details }
+export type RunResult = Details & { currentOperation: Operation }
 export type Message = { event: string; id: number; stage?: number; label?: string | [string, string]; text?: string; value?: unknown }
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; event?: (message: Message) => void }
 let process: Promise<Child> | undefined

@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 HIDDEN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -25,9 +26,12 @@ def load(path):
 
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + '.tmp')
-    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(temporary, path)
+    temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def digest(path):
@@ -39,10 +43,12 @@ def digest(path):
 
 
 def linked(path):
-    return bool(getattr(path.lstat(), 'st_file_attributes', 0) & 1024)
+    return path.is_symlink() or bool(getattr(path.lstat(), 'st_file_attributes', 0) & 1024)
 
 
 def tree(root):
+    if not root.is_dir():
+        raise NotADirectoryError(root)
     if linked(root):
         raise ValueError(tr('Посилання або junction: {}', 'Symbolic link or junction: {}').format(root))
     result = {}
@@ -61,27 +67,6 @@ def required_addons(source):
     text = source.read_text(encoding='utf-8-sig', errors='replace')
     matches = re.findall(r'requiredAddons\s*\[\s*\]\s*=\s*\{([^}]*)\}', text, re.I)
     return set(re.findall(r'"([^"]+)"', ' '.join(matches)))
-
-
-def detect_dependencies(root, addons, server, client, existing):
-    dependencies = set()
-    for addon in addons:
-        config = root / addon / 'config.cpp'
-        if config.is_file():
-            dependencies.update(name.casefold() for name in required_addons(config)
-                                if not name.upper().startswith('DZ_'))
-    found = []
-    for directory in (server, client):
-        if not directory.is_dir():
-            continue
-        for mod in sorted(directory.glob('@*')):
-            if mod.name.casefold() in existing:
-                continue
-            names = {path.stem.casefold() for path in (mod / 'Addons').glob('*.pbo')}
-            if dependencies & names:
-                found.append(str(mod))
-                existing.add(mod.name.casefold())
-    return found
 
 
 def windows_args(command):
@@ -200,8 +185,6 @@ def defaults(root):
         server_mods = [item for item in server_mods if (server / item).is_dir() and item != mod]
         server_only = [item for item in server_only if (server / item).is_dir() and item != mod]
     client = install_paths['client']
-    server_mods += detect_dependencies(root, addons, server, Path(client),
-                                      {Path(item).name.casefold() for item in [mod, *server_mods, *server_only]})
     return dict(addons='\n'.join(addons), addon_name=project.get('AddonName', ''),
                 prefix=project.get('Prefix', ''), mod=mod, metadata=metadata,
                 tools=install_paths['tools'],
@@ -353,6 +336,7 @@ class Pipeline:
         addons.mkdir(parents=True)
         if self.s['prep_exe'].strip():
             self.run([require(self.path('prep_exe')), *lines(self.s['prep_args'])], self.root)
+        inputs = self.build_inputs()
         sources = lines(self.s['addons'])
         if not sources:
             raise ValueError(tr('Додай принаймні одну папку зі своїм config.cpp.', 'Add at least one addon directory containing config.cpp.'))
@@ -425,11 +409,51 @@ class Pipeline:
             if metadata.suffix.lower() != '.cpp':
                 raise ValueError(tr('Метадані мають бути файлом .cpp.', 'Metadata must be a .cpp file.'))
             shutil.copy2(metadata, package / 'mod.cpp')
-        manifest = dict(package=str(package), files=tree(package), signed=self.s['sign'])
+        if inputs != self.build_inputs():
+            raise RuntimeError(tr('Джерела змінилися під час збірки. Повтори збірку.',
+                                  'Build inputs changed during the build. Rebuild the package.'))
+        manifest = dict(id=started, created=datetime.now(timezone.utc).isoformat(), inputs=inputs,
+                        package=str(package), files=tree(package), signed=self.s['sign'],
+                        signing={'publicKey': self.path('public').name,
+                                 'sha256': inputs['publicKey']} if self.s['sign'] else None)
         save(run / 'manifest.json', manifest)
         save(self.state / 'latest.json', manifest)
         self.log(tr('Збірка: {}', 'Build package: {}').format(package))
         return manifest
+
+    def checkpoint_settings(self):
+        keys = ('addons','mod','addon_name','prefix','metadata','extra','pack','prep_exe','prep_args','sign','private','public','tools')
+        return {key: self.s.get(key) for key in keys}
+
+    def source_snapshot(self):
+        result = {}
+        for folder in lines(self.s['addons']):
+            path = (self.root / folder).resolve()
+            if not path.is_relative_to(self.root):
+                raise ValueError(tr('Джерело має бути в папці проєкту.', 'Source must be in the project folder.'))
+            result[folder] = tree(path)
+        for file in lines(self.s.get('extra', '')):
+            result['file:' + file] = digest(require(self.root / file))
+        if self.s.get('metadata', '').strip():
+            result['metadata'] = digest(require(self.path('metadata')))
+        if (self.root / 'meta.cpp').is_file():
+            result['file:meta.cpp'] = digest(self.root / 'meta.cpp')
+        return result
+
+    def build_inputs(self):
+        def fingerprint(value):
+            return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+        settings = dict(self.checkpoint_settings())
+        settings['toolHash'] = digest(require(self.tools / 'Bin/AddonBuilder/AddonBuilder.exe'))
+        if self.s['prep_exe'].strip():
+            settings['prepHash'] = digest(require(self.path('prep_exe')))
+        if self.s['sign']:
+            settings['privateKey'] = digest(require(self.path('private')))
+            for name in ('DSSignFile', 'DSCheckSignatures'):
+                settings[name] = digest(require(self.tools / f'Bin/DsUtils/{name}.exe'))
+        public = digest(require(self.path('public'))) if self.s['sign'] else None
+        return dict(sources=fingerprint(self.source_snapshot()), settings=fingerprint(settings), publicKey=public)
 
 
     def game_settings(self):
@@ -671,10 +695,9 @@ class Pipeline:
             time.sleep(2)
         raise TimeoutError(tr('Сервер не підтвердив готовність за {} с. Логи: {}.', 'The server did not report readiness within {} seconds. Logs: {}.').format(timeout, self.profiles))
 
-    def publish(self):
+    def publish(self, manifest, item, metadata=None):
         from workshop import upload
-        manifest = load(require(self.state / 'tested.json'))
         package = self.verify(manifest)
         self.progress(5, 'Steam Workshop')
-        upload(self.client, int(self.s['workshop']), int(self.s['steam_owner']), package, self.s['notes'], self.log)
-        self.log(f'https://steamcommunity.com/sharedfiles/filedetails/?id={self.s["workshop"]}')
+        upload(self.client, item, int(self.s['steam_owner']), package, self.s['notes'], self.log, metadata)
+        self.log(f'https://steamcommunity.com/sharedfiles/filedetails/?id={item}')

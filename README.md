@@ -1,160 +1,81 @@
-# DMC | DayZ Mod Creator
+# DayZ Mod Creator
 
-<p align="center">
-  <img src="assets/DMZ.png" alt="DayZ Mod Creator logo" width="240">
-</p>
+<p align="center"><img src="assets/DMZ.png" alt="DayZ Mod Creator logo" width="180"></p>
 
-<p align="center">
-  <a href="https://github.com/Deagles12/dayz-mod-creator/releases/latest"><img src="https://img.shields.io/badge/Version-v2.1.0-25864D" alt="Version v2.1.0"></a>
-</p>
-<p align="center"><strong><a href="https://github.com/Deagles12/dayz-mod-creator/releases/latest">Download latest release</a></strong></p>
+DayZ Mod Creator is a Windows desktop and command-line tool for building, signing and deploying DayZ mods. [Published releases](https://github.com/Deagles12/dayz-mod-creator/releases/latest) may predate the workflow described here.
 
-<p align="center">
-  <strong>Build, sign, deploy, and test DayZ mods with one keypress.</strong>
-</p>
+## Set up a project
 
-<p align="center">
-  <img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-20242A">
-  <img alt="Languages" src="https://img.shields.io/badge/Languages-EN%20%7C%20UA-20242A">
-  <img alt="Local testing" src="https://img.shields.io/badge/Local%20testing-F5-25864D">
-</p>
+1. Keep `dayz-mod-creator.exe` (or `dayz-mod-studio.exe`) and `dayz-backend.exe` together. The portable build needs the Microsoft Edge WebView2 Runtime for its interface.
+2. Open the folder containing your source addon. Verify the detected DayZ, DayZ Server and DayZ Tools paths, select your local server config, and save.
+3. Enter shared and server-only dependencies in load order as local directories or Workshop IDs. Check the reported files and compare your `requiredAddons` classes with the configured mods. A PBO filename alone cannot identify a configuration class.
+4. For signing, select an existing key pair or generate a named pair from the Signing settings. DMC keeps generated keys in its local data folder. Only the public key is included in the build.
+5. Turn on **Open DayZ after updating** to open the local client after server readiness.
 
-**DayZ Mod Creator (DMC)** is a Windows desktop application designed to remove repetitive steps from DayZ mod development. Configure your test environment once, select a mod project, save your changes, and press **F5**.
+## Build and release
 
-**DMC handles the technical workflow. You focus on writing and testing the mod.**
+- **F5 · Update locally** builds and verifies a PBO package, signs it when enabled, stops the recognized local test, backs up the files, installs the package and checks DayZ server readiness. Shared mods use a dedicated test-client folder outside Steam-managed downloads. Server readiness, client launch and manual gameplay checks are separate outcomes.
+- **F5 · Update locally + Workshop** additionally uploads the same verified package when **Publish to Workshop** is enabled. Configure a Workshop link or ID and the owner's SteamID64. Use **Check item** to look up public item details and match the active Steam user to the owner. Private items can require direct confirmation from Steam during submission. Workshop confirmation refers to publication by Steam.
+- **F6 · Update remote server** deploys the build shown by ID. With automatic Workshop publishing enabled, F6 selects a Steam-confirmed build for the configured item. Otherwise it selects the last locally verified build. Edits after F5 require a fresh F5 to enter the package. F6 validates the saved package and uses that package as-is.
+- **Additional actions** provides build-only, install-only, launch-only, manual publication and local rollback. **Details** opens logs. Build manifests contain their ID, creation time, source and build-setting fingerprints, package checksums and signing information. Operation results are stored separately under `%LOCALAPPDATA%\DayZ Mod Studio`.
+- A failed Workshop upload can be retried against the same verified build if its inputs are current. The application preserves an uncertain result when Steam does not confirm the request. Check the item in Steam before starting another publication.
 
-> [!IMPORTANT]
-> **F5 is for local testing only.** Steam Workshop uploads are always a separate action.
+For a first publication, run F5 with Workshop publishing off. Supply a title, description, PNG or JPEG preview, and visibility in the Workshop screen. DMC saves the created ID as soon as Steam returns it, so a failed upload or legal-agreement prompt can be resumed against that item. If Steam does not return the creation result, check your Steam items and enter the recovered ID before uploading again. [Steamworks Workshop documentation](https://partner.steamgames.com/doc/features/workshop/implementation)
 
-## ❌ Without DMC vs. ✅ With DMC
+## Connect a remote server
 
-| ❌ Normally done manually | ✅ Automated by DMC |
-| --- | --- |
-| Open DayZ Tools and configure AddonBuilder | Uses the saved DayZ Tools configuration |
-| Package source folders into `.pbo` files | Builds one or more addons from saved source files |
-| Sign PBOs and check signatures | Signs and verifies them **when signing is enabled** |
-| Copy the mod to the local server | Backs up and installs the new server copy |
-| Copy the mod to the test client | Updates the dedicated local client mod copy |
-| Place public signing keys on the server | Installs the required `.bikey` files when applicable |
-| Close the previous test session | Stops **recognized** test processes when safe |
-| Configure and start the DayZ server | Launches the server with saved profiles and dependencies |
-| Check whether the server is ready | Monitors mission startup and the game port |
-| Start DayZ with the right parameters | Launches the client with the test mods and server address |
-| Open logs to investigate failures | Displays step status, warnings, errors, and suggested actions |
-| Restore files after a bad deployment | Provides backups and rollback for affected local files and keys |
+Configure the host, SSH port, SSH username and DayZ directory under Remote Server. DMC uses Windows OpenSSH with host-key verification and key authentication. Add the verified host key using OpenSSH and unlock your key via `ssh-agent` when required. Keep passwords, tokens and private keys out of DMC settings and readiness commands.
 
-## How it works
+The managed adapter supports Linux with SFTP, SSH, systemd, `flock`, GNU coreutils and non-interactive sudo permission for the configured unit's `systemctl start` and `systemctl stop`. Supply a dedicated `@Mod` directory, the public key directory and a readiness command that returns 0 when DayZ is ready. The command runs as the SSH user. Configure the unit to load the mod and use the matching filesystem paths. Use **Check connection** before deploying.
 
-| Step | DMC action | What you see |
-| :---: | --- | --- |
-| **01** | **Project check** | Source files, tools, server, and client configuration |
-| **02** | **PBO build** | Build progress and the resulting packages |
-| **03** | **Signing** | Signature verification, or **Skipped** if disabled |
-| **04** | **Local deployment** | Server and client copies updated and verified; backups created |
-| **05** | **Server startup** | Mission and game-port readiness status |
-| **06** | **Client launch** | DayZ started with the configured test mods |
-| **07** | **Test result** | What succeeded, what needs attention, and what to do next |
+SFTP uploads to a new staging directory. SSH verifies the SHA-256 checksums before stopping the service. DMC replaces the selected mod directory and adds any missing public keys. A conflicting public key with the same filename stops the deployment. A failed activation attempts to restore the previous mod, remove keys added by this operation and restore the previous service state. The staging path remains in the report for inspection and contains the previous mod on successful upgrade. Review and clean up old staging directories according to your backup policy.
 
-**Your part:** edit the mod, save the files, press **F5**, and test its behavior in DayZ. DMC does not verify gameplay correctness on its own.
+For a host with SFTP access only, enable **SFTP upload only**. DMC stages the files and checksums. Verify and install the package through your host's tools, then restart the server there. The report remains an upload result.
 
-## Getting started
+## Run from a Windows terminal
 
-| Step | What you do |
-| :---: | --- |
-| **1** | Keep `dayz-mod-creator.exe` and `dayz-backend.exe` in the **same folder**. Start `dayz-mod-creator.exe` (or `dayz-mod-studio.exe` in older builds). |
-| **2** | Select your mod project. DMC checks for DayZ addon structure, including `config.cpp`. |
-| **3** | Complete the one-time setup for DayZ Tools, the test server, client, profiles, ports, dependencies, and optional signing keys. |
-| **4** | Edit your mod in your preferred editor and **save the changes**. |
-| **5** | Press **F5 · Build & Test**. Watch the live progress and result. |
-| **6** | Enter the local server if needed and test the changes in-game. Repeat steps 4–6 whenever you edit the mod. |
+Use the console executable for interactive work, Codex, scripts and CI. It shares project settings, package selection and history with the desktop app. In **PowerShell commands** on the project overview, copy a command with the full executable and project paths. The F6 command also contains its displayed build ID. Copying saves any pending project settings so the terminal can use them immediately.
 
-> [!NOTE]
-> DMC does not install DayZ, DayZ Tools, the dedicated server, or missing third-party dependencies. These must already be available and configured.
+Put global options before the command. `--project` selects a specific source directory and defaults to the current directory. Use `--recent` to select the last project opened in the desktop app.
 
-## Main features
+```powershell
+.\dayz-backend.exe --help
+.\dayz-backend.exe --project 'D:\Mods\MyMod' status
+.\dayz-backend.exe --project 'D:\Mods\MyMod' update
+.\dayz-backend.exe --project 'D:\Mods\MyMod' remote --build-id 20261115-112233-aaaabbbb
+.\dayz-backend.exe --recent --json status
+.\dayz-backend.exe --recent history
+.\dayz-backend.exe --recent logs
+```
 
-| Feature | Description |
-| --- | --- |
-| **Project management** | Recent projects, addon folder detection, and rejection of unrelated directories |
-| **Environment setup** | Detection of DayZ Tools, server, and client paths; shared and per-project settings |
-| **Dependencies** | Reads mod configuration; supports local mod folders and Workshop IDs, with shared and server-side dependency lists |
-| **PBO builds** | AddonBuilder integration, multi-addon builds, build history, and build-only mode |
-| **Optional signing** | `.biprivatekey`, `.bisign` creation, signature verification, and public `.bikey` deployment |
-| **Local test deployment** | Backups, file verification, and installation into separate server and client test locations |
-| **Server & client launch** | Stored profiles and launch options, mission/port readiness checks, and client startup |
-| **Resume and retry** | Redeploy an already verified build or resume eligible stages without unnecessary rebuilding |
-| **Rollback** | Restore previously backed-up local mod files and affected keys |
-| **Live feedback** | Stage-by-stage progress, searchable logs, warnings, history, and actionable errors |
-| **Workshop updates** | Separate update action for an existing Workshop item with a saved ID |
-| **Desktop experience** | Ukrainian/English UI, dark/light themes, and persistent settings |
+`update` runs the desktop F5 workflow. The original `test` spelling remains an alias. `remote` runs F6. Read the build ID from `status` or the successful update output when you need to pin an automation to that build. For a failed Workshop upload, use `retry-publish`. Use `remote-check` to validate the saved remote connection.
 
-## Signing: automatic when enabled
+Use `config` to list setting keys, `config --get KEY` to read a value, and one or more `--set KEY VALUE` pairs to save changes. The GUI reloads saved settings and operation history when you return to the overview with no pending edits.
 
-| Signing setting | Result |
-| --- | --- |
-| ✅ **Enabled and configured** | DMC signs new PBOs, creates `.bisign` files, and verifies signatures |
-| ⏭️ **Disabled** | The signing stage is shown as **Skipped**, not as a successful signature check |
-| ⚠️ **Required by the test server** | DMC requests the necessary signing configuration before continuing |
-| ❌ **Verification fails** | DMC reports the failed stage instead of claiming success |
+```powershell
+.\dayz-backend.exe --recent config --get publish_workshop
+.\dayz-backend.exe --recent config --set publish_workshop true --set open_dayz false
+.\dayz-backend.exe --recent --verbose update
+```
 
-Your private `.biprivatekey` remains local. Only the relevant **public** `.bikey` files are installed on the test server. **Never upload or share your private key.**
+The desktop executable accepts the same arguments after `--cli`. Use `Start-Process -Wait -PassThru` for its exit code in interactive PowerShell.
 
-## Local testing and Steam Workshop are different
+```powershell
+$process = Start-Process -FilePath .\dayz-mod-creator.exe -ArgumentList '--cli --help' -Wait -PassThru -NoNewWindow
+$process.ExitCode
+```
 
-| Action | Local server/client | Steam Workshop |
-| --- | :---: | :---: |
-| **F5 · Build & Test** | ✅ | ❌ |
-| **Build PBO only** | ❌ | ❌ |
-| **Update Workshop** | Not the purpose of this action | ✅ Existing item only |
-| **First Workshop publication** | Not required | ✋ Manual |
+Human-readable output shows stages, confirmed destinations, the failure reason if applicable and a next command. Use `--verbose` to stream the full log. `--json` emits newline-delimited progress, log and result records. Exit codes are 0 for success, 1 for operation failure and 2 for invalid arguments. The `remote --build-id` option aborts if the requested ID differs from the selected verified build.
 
-DMC does **not** silently overwrite Steam-managed Workshop download directories. It uses separate local test locations. Updating an existing Workshop item requires a saved **Workshop ID** and appropriate Steam access.
+## Build and verify
 
-## Resume, backups, and safety
+```powershell
+npm ci
+python -m pip install pyinstaller
+npm run desktop
+python -m unittest discover -s backend -p 'test_release.py' -v
+```
 
-- **No unnecessary rebuilds:** a verified build can be redeployed or launched again when its sources and build-relevant settings have not changed.
-- **Backups before replacement:** DMC preserves affected local files and supports rollback.
-- **Safe process handling:** if DMC cannot identify an open game/test process reliably, it stops before changing files and asks for manual intervention.
-- **Clear outcomes:** a launched game is not automatically treated as a confirmed player connection.
+The automated suite exercises package selection, changed source inputs, Workshop retries and SFTP activation outcomes using mock adapters. For an integration test, use a disposable local DayZ project, a test Workshop item you own and a staging server on your hosting platform. Confirm a real signed package, compare the build ID on F5 and F6, then test staging failure and service rollback on that staging server. Confirm that the readiness command detects actual DayZ availability and test gameplay in the client.
 
-## Portable Windows version
-
-| File | Purpose |
-| --- | --- |
-| **`dayz-mod-creator.exe`** | The desktop interface you open |
-| **`dayz-backend.exe`** | Bundled Python process that performs the build and test operations |
-
-The interface starts the backend automatically. Users of the packaged portable version do not need to install Python separately. Keep both executables together. Some older builds may still name the interface `dayz-mod-studio.exe`.
-
-## What still requires you
-
-| You handle | DMC handles |
-| --- | --- |
-| ✍️ Write and save mod code | ✅ Build and deploy saved files |
-| 🎮 Test gameplay behavior | ✅ Start the local test environment |
-| 🔑 Choose signing keys during initial setup | ✅ Reuse them for subsequent signed builds |
-| 📦 Install missing third-party mods | ✅ Apply configured dependencies at launch |
-| ✋ Publish the first Workshop item | ✅ Update an existing configured item as a separate action |
-| ⚠️ Close an unrecognized running client if prompted | ✅ Resume eligible steps afterward |
-
-## Verified testing and current limitations
-
-The reported **`MyMod`** test confirmed:
-
-- ✅ PBO building
-- ✅ Signature creation and verification
-- ✅ Deployment to both local test copies
-- ✅ Rollback of affected files
-- ✅ Server readiness checks
-- ✅ Client launch
-- ⚠️ **Player login was not confirmed by server logs.** DMC correctly reported **Needs attention**, not full end-to-end success.
-
-These results describe the reported `MyMod` test only. They do **not** establish that every mod, server setup, or Steam Workshop update has been tested successfully.
-
-## The goal
-
-| ❌ Without automation | ✅ With DMC |
-| --- | --- |
-| Repeated manual packing, signing, copying, launching, and log checking | **Save your changes, press F5, and test in DayZ** |
-
-**DMC is an independent community tool and is not an official Bohemia Interactive product.**
+DayZ Mod Creator is an independent community tool.

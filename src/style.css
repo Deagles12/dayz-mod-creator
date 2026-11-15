@@ -47,6 +47,13 @@ section{margin:0 0 12px;padding:10px 0;border-top:1px solid var(--stroke);min-wi
 .overview-head h2{font-size:25px;letter-spacing:-.035em;margin:0}
 .overview-head small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .overview-head .primary{flex:none}
+.terminal-commands{margin-bottom:12px}
+.terminal-commands label{display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-weight:600}
+.terminal-commands select{font:inherit;color:inherit;background:var(--input);border:1px solid var(--stroke);border-radius:var(--radius);padding:4px 8px}
+.command-line{display:flex;align-items:center;gap:8px;margin:4px 0 8px}
+.command-line code{min-width:0;flex:1;padding:8px 10px;overflow:auto;white-space:nowrap;user-select:text;background:var(--input);border:1px solid var(--stroke);border-radius:var(--radius)}
+.command-line button{flex:none}
+@media(max-width:690px){.command-line{align-items:stretch;flex-direction:column}.command-line button{align-self:flex-end}}
 .overview-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px}
 .stage-track{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin:0 0 16px}
 .stage-track>div{display:flex;gap:6px;align-items:center;min-width:0;border-bottom:2px solid var(--stroke);padding:4px 1px}
