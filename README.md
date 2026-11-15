@@ -1,10 +1,12 @@
 # DayZ Mod Creator
 
-[![Download для Windows x64](https://img.shields.io/badge/%D0%97%D0%B0%D0%B2%D0%B0%D0%BD%D1%82%D0%B0%D0%B6%D0%B8%D1%82%D0%B8-Windows%20x64-2563EB?style=for-the-badge)](https://github.com/Deagles12/dayz-mod-creator/releases/latest/download/DayZ-Mod-Creator-Windows-x64-portable.zip)
-
-[Release notes and downloads](https://github.com/Deagles12/dayz-mod-creator/releases/latest)
-
 <p align="center"><img src="assets/DMZ.png" alt="DayZ Mod Creator logo" width="180"></p>
+
+<p align="center">
+  <a href="https://github.com/Deagles12/dayz-mod-creator/releases/latest/download/DayZ-Mod-Creator-Windows-x64-portable.zip"><img src="https://img.shields.io/badge/Download-Windows%20x64-2563EB?style=for-the-badge" alt="Download for Windows x64"></a>
+</p>
+
+<p align="center"><a href="https://github.com/Deagles12/dayz-mod-creator/releases/latest">Release notes and downloads</a></p>
 
 DayZ Mod Creator is a Windows desktop and command-line tool for building, signing and deploying DayZ mods.
 
@@ -18,11 +20,31 @@ DayZ Mod Creator is a Windows desktop and command-line tool for building, signin
 
 ## Build and release
 
-- **F5 · Update locally** builds and verifies a PBO package, signs it when enabled, stops the recognized local test, backs up the files, installs the package and checks DayZ server readiness. Shared mods use a dedicated test-client folder outside Steam-managed downloads. Server readiness, client launch and manual gameplay checks are separate outcomes.
-- **F5 · Update locally + Workshop** additionally uploads the same verified package when **Publish to Workshop** is enabled. Configure a Workshop link or ID and the owner's SteamID64. Use **Check item** to look up public item details and match the active Steam user to the owner. Private items can require direct confirmation from Steam during submission. Workshop confirmation refers to publication by Steam.
-- **F6 · Update remote server** deploys the build shown by ID. With automatic Workshop publishing enabled, F6 selects a Steam-confirmed build for the configured item. Otherwise it selects the last locally verified build. Edits after F5 require a fresh F5 to enter the package. F6 validates the saved package and uses that package as-is.
-- **Additional actions** provides build-only, install-only, launch-only, manual publication and local rollback. **Details** opens logs. Build manifests contain their ID, creation time, source and build-setting fingerprints, package checksums and signing information. Operation results are stored separately under `%LOCALAPPDATA%\DayZ Mod Studio`.
-- A failed Workshop upload can be retried against the same verified build if its inputs are current. The application preserves an uncertain result when Steam does not confirm the request. Check the item in Steam before starting another publication.
+<table>
+  <thead>
+    <tr><th scope="col">Action</th><th scope="col">Desktop app</th><th scope="col">PowerShell</th><th scope="col">Result</th></tr>
+  </thead>
+  <tbody>
+    <tr><th colspan="4" align="left">LOCAL BUILD AND TEST</th></tr>
+    <tr><th scope="row">Update locally</th><td align="center"><kbd>F5</kbd></td><td align="center"><code>update</code></td><td>Builds and verifies the PBO, signs it when enabled, stops the previous test, backs up and installs the package, then checks server readiness.</td></tr>
+    <tr><th scope="row">Run an individual step</th><td align="center">Additional actions</td><td align="center"><code>build</code> · <code>deploy</code> · <code>launch</code></td><td>Builds, installs or launches separately.</td></tr>
+    <tr><th scope="row">Restore local files</th><td align="center">Roll back</td><td align="center"><code>rollback</code></td><td>Restores the previous local installation.</td></tr>
+    <tr><th colspan="4" align="left">WORKSHOP AND REMOTE SERVER</th></tr>
+    <tr><th scope="row">Update Steam Workshop</th><td align="center"><kbd>F5</kbd> with Publish to Workshop enabled</td><td align="center"><code>update</code> with publishing enabled</td><td>Submits the same verified package after the local server reports ready.</td></tr>
+    <tr><th scope="row">Publish separately</th><td align="center">Publish manually · Retry publication</td><td align="center"><code>publish</code> · <code>retry-publish</code></td><td>Uses an existing verified package while its inputs still match.</td></tr>
+    <tr><th scope="row">Deploy a verified build</th><td align="center"><kbd>F6</kbd></td><td align="center"><code>remote --build-id ID</code></td><td>Validates and deploys the saved build by ID over SSH/SFTP.</td></tr>
+    <tr><th colspan="4" align="left">HISTORY AND DIAGNOSTICS</th></tr>
+    <tr><th scope="row">Inspect the result</th><td align="center">Overview · Details</td><td align="center"><code>status</code> · <code>history</code> · <code>logs</code></td><td>Shows build IDs, operation outcomes and logs from either interface.</td></tr>
+  </tbody>
+</table>
+
+Shared mods use a dedicated test-client folder outside Steam-managed downloads. Server readiness, client launch and manual gameplay checks are separate outcomes.
+
+For Workshop updates, configure a Workshop link or ID and the owner’s SteamID64. Use **Check item** to look up public item details and match the active Steam user to the owner. Private items can require direct confirmation from Steam during submission. If Steam returns an uncertain result, check the item before starting another publication.
+
+F6 selects a Steam-confirmed build for the configured item when automatic publishing is enabled. Otherwise, it selects the last locally verified build. Run F5 again to include new edits.
+
+Build manifests record the ID, creation time, source and build-setting fingerprints, package checksums and signing information. Operation results are stored separately under `%LOCALAPPDATA%\DayZ Mod Studio`.
 
 For a first publication, run F5 with Workshop publishing off. Supply a title, description, PNG or JPEG preview, and visibility in the Workshop screen. DMC saves the created ID as soon as Steam returns it, so a failed upload or legal-agreement prompt can be resumed against that item. If Steam does not return the creation result, check your Steam items and enter the recovered ID before uploading again. [Steamworks Workshop documentation](https://partner.steamgames.com/doc/features/workshop/implementation)
 
