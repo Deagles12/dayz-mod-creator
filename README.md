@@ -1,6 +1,6 @@
 # DayZ Mod Creator
 
-[![Завантажити для Windows x64](https://img.shields.io/badge/%D0%97%D0%B0%D0%B2%D0%B0%D0%BD%D1%82%D0%B0%D0%B6%D0%B8%D1%82%D0%B8-Windows%20x64-2563EB?style=for-the-badge)](https://github.com/Deagles12/dayz-mod-creator/releases/latest/download/DayZ-Mod-Creator-Windows-x64-portable.zip)
+[![Download для Windows x64](https://img.shields.io/badge/%D0%97%D0%B0%D0%B2%D0%B0%D0%BD%D1%82%D0%B0%D0%B6%D0%B8%D1%82%D0%B8-Windows%20x64-2563EB?style=for-the-badge)](https://github.com/Deagles12/dayz-mod-creator/releases/latest/download/DayZ-Mod-Creator-Windows-x64-portable.zip)
 
 [Release notes and downloads](https://github.com/Deagles12/dayz-mod-creator/releases/latest)
 
