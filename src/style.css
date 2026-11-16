@@ -132,3 +132,10 @@ progress{width:min(170px,22vw);accent-color:var(--focus)}
 .workflow-row:last-child{border:0}
 .workflow-row button{padding:3px 7px;min-height:26px}
 @media(max-width:690px){.workflow-row{grid-template-columns:minmax(0,1fr) auto}.workflow-row>div:last-child:not(:empty){grid-column:1/-1;margin-top:-5px}.workflow-row>div:empty{display:none}}
+.model-tool { display: grid; gap: .8rem; }
+.model-tool > button { justify-self: start; }
+.model-preview { position: relative; min-height: 260px; height: min(44vh, 420px); overflow: hidden; border: 1px solid #80808055; border-radius: 8px; background: linear-gradient(145deg, #283039, #15181d); }
+.model-preview canvas { display: block; }
+.model-preview > p { position: absolute; inset: 16px; color: #fff; }
+.model-result { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.model-error { color: #ef8d83; overflow-wrap: anywhere; }

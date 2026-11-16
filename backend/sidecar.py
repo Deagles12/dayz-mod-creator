@@ -1,4 +1,5 @@
 """Line-delimited JSON adapter for the existing DayZ pipeline."""
+import base64
 import ctypes
 import argparse
 import hashlib
@@ -14,6 +15,7 @@ from pathlib import Path
 from console import ACTIONS, command as shell_command
 from test_workflow import MACHINE, TestPipeline
 
+from model_export import export_model, read_glb
 from locale_studio import set_language, tr
 from pipeline import STORE, defaults, detect_installs, lines, load, operation_lock, require, required_addons, save
 from remote import LinuxDayZ, select_build
@@ -571,6 +573,17 @@ def operate(root, request, emit, report_only=False):
 
 def dispatch(request, emit):
     command = request['command']
+    if command == 'previewModel':
+        _, data = read_glb(request['path'])
+        return base64.b64encode(data).decode('ascii')
+    if command == 'exportModel':
+        return export_model(request)
+    if command == 'revealModel':
+        path = Path(request['path']).resolve()
+        if not path.is_relative_to((STORE / 'models').resolve()) or not path.is_dir():
+            raise ValueError('Invalid model output folder')
+        os.startfile(path)
+        return None
     if command == 'hello':
         return {'hasEnvironment': (STORE / 'environment.json').is_file(), 'interface': optional(STORE / 'interface.json', {}), 'recent': optional(STORE / 'recent.json', {})}
     if command == 'preferences':

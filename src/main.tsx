@@ -1,12 +1,14 @@
 import { Activity, ArrowUpRight, Box, ChevronRight, CircleHelp, ClipboardList, CloudUpload, FolderOpen, Folders, Gauge, ListFilter, Minus, Monitor, Play, Plus, RefreshCw, Server, Settings2, Square, Terminal, Trash2, X } from 'lucide-react'
 import { LogDrawer, Menu, Status } from './ui'
-import { useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 import { call, type Details, type Message, type Operation, type Project, type RunResult, type Settings } from './backend'
 import { checks, fields, hints, pages, phases, type Lang, type Page } from './locale'
 import './style.css'
+
+const Models = lazy(() => import('./models').then(module => ({ default: module.Models })))
 
 type Prefs = { language: Lang; theme: 'dark' | 'light'; projects: string[] }
 type Action = 'deploy' | 'launch' | 'retry' | 'build' | 'test' | 'rollback' | 'publish' | 'retry-publish' | 'remote' | 'remote-check' | 'create-workshop'
@@ -440,7 +442,7 @@ function App() {
   const setupGroup = wizard === undefined ? undefined : groups[wizard]
   const ready = !!project && (project.configured || hasEnvironment) && project.details.checks.length>0 && project.details.checks.every(check=>check.ok)
   const lastTest = project?.details.operations.find(item=>['test','retry','launch'].includes(item.action))
-  const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2]
+  const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2,Box]
   const serverState = live==='ready' ? tr('Порт активний','Listening') : live==='offline' ? tr('Не запущено','Stopped') : tr('Немає підтвердження','Unverified')
   const clientState = lastTest?.connected ? tr('Вхід підтверджено в останньому тесті','Connected in last test') :
     lastTest?.clientLaunched ? tr('Вхід не підтверджено','Connection unverified') : tr('Ще не перевірено','Not tested')
@@ -490,7 +492,8 @@ function App() {
         {notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
         {page==='projects' && <div className="grid gap-2">{prefs.projects.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void loadProject(path).catch(flagError)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
-        {!project && !['projects','settings'].includes(page) && <div className="empty"><h2>{tr('Відкрий папку мода','Open a mod folder')}</h2><p>{tr('Майстер допоможе підготувати першу збірку.','The setup wizard will prepare your first build.')}</p><button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button></div>}
+        {!project && !['projects','settings','models'].includes(page) && <div className="empty"><h2>{tr('Відкрий папку мода','Open a mod folder')}</h2><p>{tr('Майстер допоможе підготувати першу збірку.','The setup wizard will prepare your first build.')}</p><button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button></div>}
+        {page==='models' && <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}><Models language={lng} root={project?.root} settings={settings}/></Suspense>}
         {project && page==='overview' && <>
           <div className="overview-head">
             <div className="min-w-0"><h2>{nameOf(project.root)}</h2><small className="path" title={project.root}>{project.root}</small></div>

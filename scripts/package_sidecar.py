@@ -8,5 +8,6 @@ subprocess.run([
     sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--console',
     '--name', f'dayz-backend-{target}', '--workpath', str(root / '.build/pyinstaller'),
     '--specpath', str(root / '.build'), '--distpath', str(root / 'src-tauri/binaries'),
+    '--add-data', str(root / 'backend/model_blender.py') + ':.',
     str(root / 'backend/sidecar.py')
 ], cwd=root, check=True)

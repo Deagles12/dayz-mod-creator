@@ -105,3 +105,9 @@ python -m unittest discover -s backend -p 'test_release.py' -v
 The automated suite exercises package selection, changed source inputs, Workshop retries and SFTP activation outcomes using mock adapters. For an integration test, use a disposable local DayZ project, a test Workshop item you own and a staging server on your hosting platform. Confirm a real signed package, compare the build ID on F5 and F6, then test staging failure and service rollback on that staging server. Confirm that the readiness command detects actual DayZ availability and test gameplay in the client.
 
 DayZ Mod Creator is an independent community tool.
+
+### 3D-моделі
+
+У розділі **3D-моделі** вибери кольоровий GLB розміром до 64 МБ. Прев’ю можна обертати мишею. Studio автоматично зберігає візуальний P3D із трьома LOD і PAA в окрему папку та зберігає масштаб GLB. Для проєкту з одним аддоном шлях до текстури бере його префікс, в інших випадках використовує `dayz_models`. Кнопка **Відкрити результат** показує готові файли.
+
+Потрібні локальні Blender і DayZ Tools. Studio шукає Blender у стандартних місцях, або можна задати шлях до `blender.exe` через `DAYZ_BLENDER`. Експорт підтримує одну сітку з UV і одним вбудованим PNG Base Color. Колізія, ігровий конфіг та пакування належать до окремих кроків.
