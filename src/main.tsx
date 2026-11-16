@@ -73,6 +73,9 @@ async function writeClipboard(text: string) {
 function App() {
   const [prefs, setPrefs] = useState(defaultPrefs)
   const [page, setPage] = useState<Page>('overview')
+  const [modelsVisited, setModelsVisited] = useState(false)
+  const [modelStatus, setModelStatus] = useState('')
+  useEffect(() => { if (page === 'models') setModelsVisited(true) }, [page])
   const [project, setProject] = useState<Project>()
   const [settings, setSettings] = useState<Settings>({})
   const [busy, setBusy] = useState(false)
@@ -487,13 +490,17 @@ function App() {
         const Icon=navIcons[index]
         return <button key={key} aria-current={page===key?'page':undefined} title={tr(uk,en)} onClick={()=>setPage(key)}><Icon size={16}/><span>{tr(uk,en)}</span></button>
       })}</nav>
-      <main key={page} className={page==='build'&&project?'build-main':undefined}>
+      <main className={page==='build'&&project?'build-main':undefined}>
         {!(page==='build'&&project)&&<h1>{tr(title[1],title[2])}</h1>}
         {notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
         {page==='projects' && <div className="grid gap-2">{prefs.projects.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void loadProject(path).catch(flagError)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
         {!project && !['projects','settings','models'].includes(page) && <div className="empty"><h2>{tr('Відкрий папку мода','Open a mod folder')}</h2><p>{tr('Майстер допоможе підготувати першу збірку.','The setup wizard will prepare your first build.')}</p><button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button></div>}
-        {page==='models' && <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}><Models language={lng} root={project?.root} settings={settings}/></Suspense>}
+        {(modelsVisited || page==='models') && <div hidden={page !== 'models'}>
+          <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}>
+            <Models language={lng} root={project?.root} settings={settings} onStatus={setModelStatus}/>
+          </Suspense>
+        </div>}
         {project && page==='overview' && <>
           <div className="overview-head">
             <div className="min-w-0"><h2>{nameOf(project.root)}</h2><small className="path" title={project.root}>{project.root}</small></div>
@@ -684,7 +691,7 @@ function App() {
     </div>
     <footer>
       <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>
-      <div className="footer-row"><span aria-live="polite">{stageText}</span>
+      <div className="footer-row"><span aria-live="polite">{page === 'models' ? modelStatus : stageText}</span>
         {busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
         <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button></div>
     </footer>

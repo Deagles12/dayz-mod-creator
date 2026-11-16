@@ -12,6 +12,11 @@ from mathutils import Vector
 source, stage, converter, prefix, stem = sys.argv[sys.argv.index("--") + 1:]
 stage = Path(stage)
 
+
+def progress(step):
+    with (stage.parent / "progress").open("a", encoding="ascii") as file:
+        file.write(f"{step}\n")
+
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=source)
 parts = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
@@ -38,6 +43,7 @@ extent = max(high - low)
 if extent <= 0:
     raise ValueError("Model is empty.")
 
+progress(2)
 data = stage / "data"
 data.mkdir()
 texture_name = stem + "_co"
@@ -53,6 +59,7 @@ with tempfile.TemporaryDirectory(prefix="dayz-paa-") as temp:
     shutil.copyfile(paa, data / paa.name)
 
 texture = f"{prefix}\\{stem}\\data\\{texture_name}.paa"
+progress(3)
 lods = []
 for level, budget in ((1, 10000), (2, 4500), (3, 1800)):
     obj.data.calc_loop_triangles()

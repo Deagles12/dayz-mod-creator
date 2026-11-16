@@ -92,36 +92,77 @@ function Preview({ data, fallback }: { data: string; fallback: string }) {
   return <div className="model-preview" ref={mount}>{failed && <p role="status">{fallback}</p>}</div>
 }
 
-export function Models({ language, root, settings }: { language: Lang; root?: string; settings: Settings }) {
+type Activity = 'idle' | 'choosing' | 'running' | 'done' | 'error'
+
+const stages = [
+  ['Завантаження GLB', 'Loading GLB'],
+  ['Підготовка меша в Blender', 'Preparing mesh in Blender'],
+  ['Конвертація текстури в PAA', 'Converting texture to PAA'],
+  ['Побудова LOD і запис P3D', 'Building LODs and writing P3D'],
+  ['Перевірка й збереження файлів', 'Checking and saving files'],
+] as const
+
+export function Models({ language, root, settings, onStatus }: {
+  language: Lang; root?: string; settings: Settings; onStatus: (status: string) => void
+}) {
   const tr = (uk: string, en: string) => language === 'uk' ? uk : en
   const [model, setModel] = useState('')
   const [preview, setPreview] = useState('')
   const [files, setFiles] = useState<ModelFiles>()
-  const [busy, setBusy] = useState(false)
+  const [outputRoot, setOutputRoot] = useState('')
+  const [activity, setActivity] = useState<Activity>('idle')
+  const [stage, setStage] = useState(0)
   const [error, setError] = useState('')
+  const busy = activity === 'choosing' || activity === 'running'
+  const status = {
+    idle: tr('Вибери кольоровий GLB', 'Choose a textured GLB'),
+    choosing: tr('Вибір файла', 'Selecting a file'),
+    running: tr(stages[stage][0], stages[stage][1]),
+    done: tr('P3D і PAA готові', 'P3D and PAA are ready'),
+    error: tr('Операцію не завершено', 'Operation did not finish'),
+  }[activity]
+
+  useEffect(() => onStatus(status), [status, onStatus])
+  useEffect(() => {
+    let active = true
+    void call<{ root: string; latest: ModelFiles | null }>(language, 'modelOutput').then(result => {
+      if (!active) return
+      setOutputRoot(result.root)
+      if (result.latest) setFiles(current => current || result.latest || undefined)
+    }).catch(failure => { if (active) setError(String(failure)) })
+    return () => { active = false }
+  }, [language])
 
   async function choose() {
-    setBusy(true)
+    setActivity('choosing')
     setError('')
     try {
       const path = await open({ filters: [{ name: 'GLB', extensions: ['glb'] }], multiple: false })
-      if (typeof path !== 'string') return
+      if (typeof path !== 'string') {
+        setActivity(activity)
+        return
+      }
       setModel(path.split(/[\\/]/).pop() || path)
-      setFiles(undefined)
       setPreview('')
+      setStage(0)
+      setActivity('running')
       setPreview(await call<string>(language, 'previewModel', { path }))
-      setFiles(await call<ModelFiles>(language, 'exportModel', { path, root, settings }))
+      setFiles(await call<ModelFiles>(language, 'exportModel', { path, root, settings }, message => {
+        if (message.event === 'progress' && message.stage !== undefined && message.stage in stages) {
+          const next = message.stage
+          setStage(current => Math.max(current, next))
+        }
+      }))
+      setActivity('done')
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusy(false)
+      setActivity('error')
     }
   }
 
-  async function reveal() {
-    if (!files) return
+  async function reveal(path: string) {
     try {
-      await call(language, 'revealModel', { path: files.folder })
+      await call(language, 'revealModel', { path })
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     }
@@ -129,13 +170,35 @@ export function Models({ language, root, settings }: { language: Lang; root?: st
 
   return <div className="model-tool">
     <button className="primary" disabled={busy} onClick={() => void choose()}><Upload size={16}/>{tr('Вибрати GLB', 'Choose GLB')}</button>
-    {model && <p className="path">{model}</p>}
+    <section className="model-status">
+      <div className="model-status-head">
+        <strong role="status">{status}</strong>
+        {activity === 'running' && <span>{stage + 1} / {stages.length}</span>}
+      </div>
+      {model && <div className="path">{model}</div>}
+      <progress aria-label={tr('Завершено етапів експорту', 'Completed export stages')}
+        max={stages.length} value={activity === 'done' ? stages.length : activity === 'idle' || activity === 'choosing' ? 0 : stage}/>
+      <ol className="model-steps">
+        {stages.map(([uk, en], index) => {
+          const completed = activity === 'done' || (activity === 'running' || activity === 'error') && index < stage
+          const current = (activity === 'running' || activity === 'error') && index === stage
+          return <li key={en} data-state={completed ? 'done' : current ? activity : 'pending'}
+            aria-current={current ? 'step' : undefined}>
+            <span aria-hidden="true">{completed ? '✓' : index + 1}</span>{tr(uk, en)}
+          </li>
+        })}
+      </ol>
+      {error && <p role="alert" className="model-error">{error}</p>}
+    </section>
+    <section className="model-result">
+      <h2>{tr(files && activity !== 'done' ? 'Останній результат' : 'Файли результату',
+        files && activity !== 'done' ? 'Last export' : 'Output files')}</h2>
+      <code className="model-output-path">{files?.folder || outputRoot || '—'}</code>
+      {files && <div className="model-file-list"><code>{files.model}</code><code>data\{files.texture}</code></div>}
+      {(files || outputRoot) && <button onClick={() => void reveal(files?.folder || outputRoot)}>
+        <FolderOpen size={16}/>{tr('Відкрити папку', 'Open folder')}
+      </button>}
+    </section>
     {preview && <Preview data={preview} fallback={tr('3D-прев’ю недоступне.', '3D preview is unavailable.')}/>}
-    {busy && <p role="status">{tr('Готую P3D і PAA…', 'Preparing P3D and PAA…')}</p>}
-    {error && <p role="alert" className="model-error">{error}</p>}
-    {files && <div className="model-result">
-      <div><strong>{files.model}</strong><p>{files.texture}</p></div>
-      <button onClick={() => void reveal()}><FolderOpen size={16}/>{tr('Відкрити результат', 'Open output folder')}</button>
-    </div>}
   </div>
 }

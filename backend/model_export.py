@@ -8,6 +8,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 
 from locale_studio import tr
 from pipeline import STORE, detect_installs, lines, steam_installs
@@ -46,7 +47,22 @@ def blender_path():
                               'Blender was not found. Install Blender or set DAYZ_BLENDER.'))
 
 
-def export_model(request):
+def model_output():
+    root = STORE / 'models'
+    root.mkdir(parents=True, exist_ok=True)
+    latest = None
+    candidates = sorted(root.glob('**/*.p3d'), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in candidates:
+        folder = path.parent
+        texture = f'{path.stem}_co.paa'
+        if (folder / 'data' / texture).is_file():
+            latest = {'folder': str(folder), 'model': path.name, 'texture': texture}
+            break
+    return {'root': str(root), 'latest': latest}
+
+
+def export_model(request, progress=lambda stage: None):
+    progress(1)
     source, _ = read_glb(request['path'])
     settings = request.get('settings', {})
     tools = detect_installs(settings).get('tools')
@@ -85,14 +101,36 @@ def export_model(request):
                 break
         else:
             raise FileExistsError(stem)
-        result = subprocess.run(
+        log = stage / 'blender.log'
+        status = stage / 'progress'
+        reported = 1
+        with log.open('wb') as output, subprocess.Popen(
             [str(blender), '-b', '-t', '4', '--python-exit-code', '1', '--python',
              str(Path(__file__).with_name('model_blender.py')), '--', str(source), str(scratch),
-             str(converter), prefix, name], cwd=stage, capture_output=True,
-            encoding='utf-8', errors='replace', timeout=180, creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if result.returncode:
-            raise RuntimeError((result.stderr or result.stdout).strip()[-1800:])
+             str(converter), prefix, name], cwd=stage, stdout=output, stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ) as process:
+            deadline = time.monotonic() + 180
+            try:
+                while True:
+                    if status.is_file():
+                        for line in status.read_text(encoding='ascii').splitlines():
+                            if line in ('2', '3') and int(line) > reported:
+                                reported = int(line)
+                                progress(reported)
+                    if process.poll() is not None:
+                        break
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(tr('Blender перевищив 3 хвилини.', 'Blender exceeded three minutes.'))
+                    time.sleep(.2)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+        if process.returncode:
+            with log.open('rb') as output:
+                output.seek(max(0, log.stat().st_size - 2200))
+                raise RuntimeError(output.read().decode('utf-8', errors='replace').strip())
+        progress(4)
         model = scratch / f'{name}.p3d'
         texture = scratch / 'data' / f'{name}_co.paa'
         with model.open('rb') as file:

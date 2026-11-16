@@ -15,7 +15,7 @@ from pathlib import Path
 from console import ACTIONS, command as shell_command
 from test_workflow import MACHINE, TestPipeline
 
-from model_export import export_model, read_glb
+from model_export import export_model, model_output, read_glb
 from locale_studio import set_language, tr
 from pipeline import STORE, defaults, detect_installs, lines, load, operation_lock, require, required_addons, save
 from remote import LinuxDayZ, select_build
@@ -576,8 +576,10 @@ def dispatch(request, emit):
     if command == 'previewModel':
         _, data = read_glb(request['path'])
         return base64.b64encode(data).decode('ascii')
+    if command == 'modelOutput':
+        return model_output()
     if command == 'exportModel':
-        return export_model(request)
+        return export_model(request, lambda stage: emit('progress', stage=stage))
     if command == 'revealModel':
         path = Path(request['path']).resolve()
         if not path.is_relative_to((STORE / 'models').resolve()) or not path.is_dir():
