@@ -15,8 +15,9 @@ from pathlib import Path
 from console import ACTIONS, command as shell_command
 from test_workflow import MACHINE, TestPipeline
 
-from model_export import export_model, model_output, read_glb
-from texture_export import convert_textures, texture_output
+from model_export import export_model, read_glb
+from texture_export import convert_textures
+from export_folders import can_reveal, output_folder
 from locale_studio import set_language, tr
 from pipeline import STORE, defaults, detect_installs, lines, load, operation_lock, require, required_addons, save
 from remote import LinuxDayZ, select_build
@@ -89,8 +90,8 @@ def validate_project(root, settings):
             source = config.read_text(encoding='utf-8-sig', errors='replace')
             if re.search(r"\bclass\s+CfgPatches\b|(?m:^\s*#include\s+)", source, re.I):
                 return
-    raise ValueError(tr('У цій папці немає вихідного аддона DayZ. Вибери корінь проєкту з config.cpp.',
-                        'This folder has no DayZ source addon. Choose a project folder containing config.cpp.'))
+    raise ValueError(tr('Вибери папку мода, що містить аддон із config.cpp.',
+                        'Choose a mod folder containing an addon with config.cpp.'))
 
 
 def readiness(root, settings):
@@ -574,37 +575,23 @@ def operate(root, request, emit, report_only=False):
 
 def dispatch(request, emit):
     command = request['command']
-    if command == 'textureOutput':
-        return str(texture_output())
+    if command == 'exportFolder':
+        return str(output_folder(request['kind'], request.get('path')))
     if command == 'convertTextures':
         return convert_textures(request['paths'], request.get('settings', {}),
-                                lambda stage, text: emit('progress', stage=stage, text=text))
-    if command == 'revealTextures':
-        path = Path(request['path']).resolve()
-        if not path.is_relative_to(texture_output().resolve()) or not path.is_dir():
-            raise ValueError('Invalid texture output folder')
-        os.startfile(path)
-        return None
+                                lambda stage, text: emit('progress', stage=stage, text=text),
+                                request.get('output'))
     if command == 'previewModel':
         _, data = read_glb(request['path'])
         return base64.b64encode(data).decode('ascii')
-    if command == 'modelOutput':
-        return model_output()
     if command == 'exportModel':
         return export_model(request, lambda stage: emit('progress', stage=stage))
-    if command == 'revealModel':
+    if command in ('revealModel', 'revealTextures'):
         path = Path(request['path']).resolve()
-        if not path.is_relative_to((STORE / 'models').resolve()) or not path.is_dir():
-            raise ValueError('Invalid model output folder')
+        if not can_reveal('models' if command == 'revealModel' else 'textures', path):
+            raise ValueError('Invalid export folder')
         os.startfile(path)
         return None
-    if command == 'hello':
-        return {'hasEnvironment': (STORE / 'environment.json').is_file(), 'interface': optional(STORE / 'interface.json', {}), 'recent': optional(STORE / 'recent.json', {})}
-    if command == 'preferences':
-        save(STORE / 'interface.json', request['value'])
-        return None
-    if command == 'detect':
-        return detect_installs(request['settings'])
     root = Path(request['root']).resolve()
     if not root.is_dir():
         raise FileNotFoundError(root)

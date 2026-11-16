@@ -6,7 +6,8 @@ import subprocess
 import tempfile
 
 from locale_studio import tr
-from pipeline import STORE, detect_installs
+from pipeline import detect_installs
+from export_folders import output_folder
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tga'}
 
@@ -19,17 +20,11 @@ def image_to_paa_path(settings):
     return converter
 
 
-def texture_output():
-    root = STORE / 'textures'
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
-def convert_textures(paths, settings, progress):
+def convert_textures(paths, settings, progress, output=None):
     if not isinstance(paths, list) or not 1 <= len(paths) <= 100:
         raise ValueError(tr('Вибери від 1 до 100 файлів.', 'Choose 1 to 100 files.'))
     converter = image_to_paa_path(settings)
-    root = texture_output()
+    root = output_folder('textures', output)
     folder = Path(tempfile.mkdtemp(prefix='export-', dir=root))
     files, errors = [], []
     for index, value in enumerate(paths, 1):

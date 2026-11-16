@@ -110,7 +110,7 @@ function App() {
     setNotice(String(error instanceof Error ? error.message : error))
   }
 
-  async function loadProject(root: string, preference = prefs, setup = true, environment = hasEnvironment) {
+  async function loadProject(root: string, preference = prefs, setup = true, environment = hasEnvironment, activate = true) {
     const found = await call<Project>(preference.language, 'open', {root})
     setProject(found)
     setSettings(found.settings)
@@ -123,7 +123,7 @@ function App() {
       const text=await call<string>(preference.language,'readLog',{root:found.root,path:log}).catch(()=>'')
       setEntries(text.split(/\r?\n/).filter(Boolean).map(text=>({text,error:isError(text)})))
     }
-    setPage('overview')
+    if (activate) setPage('overview')
     if (setup && !found.configured && !environment) setWizard(0)
     const next = {...preference, projects: [found.root, ...preference.projects.filter(path => path !== found.root)].slice(0, 30)}
     setPrefs(next)
@@ -134,7 +134,7 @@ function App() {
       const next = {...defaultPrefs, ...data.interface}
       setPrefs(next)
       setHasEnvironment(data.hasEnvironment)
-      if (data.recent.project) await loadProject(data.recent.project, next, !data.hasEnvironment, data.hasEnvironment)
+      if (data.recent.project) await loadProject(data.recent.project, next, false, data.hasEnvironment, false).catch(() => undefined)
     }).catch(flagError)
   }, [])
   useEffect(() => {
@@ -469,10 +469,10 @@ function App() {
   const startButton = <button className="primary" disabled={busy || !project} onClick={()=>void start('test')}>
     <Play size={15}/>{!hasSetup || !ready ? tr('Налаштувати тест','Set up test') : settings.publish_workshop
       ? tr('Оновити локально + Workshop','Update locally + Workshop') : tr('Оновити локально','Update locally')}<kbd>F5</kbd></button>
-  return <div className="app">
+  const toolPage = page === 'models' || page === 'textures'
+  return <div className={toolPage ? 'app app-tool' : 'app'}>
     <header className="titlebar" data-tauri-drag-region>
       <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.2</small></span>
-      {project&&<span className="title-context" data-tauri-drag-region>{nameOf(project.root)} · {ready?tr('Готовий до збірки','Ready to build'):tr('Потрібне налаштування','Setup needed')}</span>}
       <div className="segments" aria-label={tr('Мова','Language')}>
         <button aria-pressed={lng==='uk'} onClick={()=>void changePrefs({language:'uk'})}>UA</button>
         <button aria-pressed={lng==='en'} onClick={()=>void changePrefs({language:'en'})}>EN</button>
@@ -483,26 +483,35 @@ function App() {
         <button aria-label={tr('Закрити','Close')} disabled={busy} onClick={()=>void desktop.close()}><X size={16}/></button>
       </div>
     </header>
-    <div className="toolbar">
-      <Menu className="project-switch" disabled={busy} label={<><FolderOpen size={16}/><span className="project-caption" title={project?.root}><strong>{project?nameOf(project.root):tr('Вибрати проєкт','Choose a project')}</strong>{project&&<small>{project.root}</small>}</span></>}>
+    {!toolPage && <div className="toolbar">
+      <Menu className="project-switch" disabled={busy} label={<><FolderOpen size={16}/><span className="project-caption" title={project?.root}><strong>{project?nameOf(project.root):tr('Вибрати проєкт','Choose a project')}</strong></span></>}>
         {close=><>{prefs.projects.map(path=><button key={path} title={path} onClick={()=>{close();void loadProject(path).catch(flagError)}}><Folders size={15}/><span>{nameOf(path)}</span>{path===project?.root&&<span className="muted"> •</span>}</button>)}
           <button onClick={()=>{close();void chooseProject()}}><Plus size={15}/>{tr('Відкрити папку…','Open folder…')}</button></>}
       </Menu>
       {project&&<Status tone={busy?'active':ready?'good':'warn'}>{busy?tr('Виконується','Working'):ready?tr('Середовище готове','Environment ready'):tr('Потрібне налаштування','Setup needed')}</Status>}
       <div className="toolbar-actions ml-auto"><button disabled={busy} onClick={()=>void chooseProject()}><FolderOpen size={14}/><span>{tr('Відкрити папку','Open folder')}</span></button>
       </div>
-    </div>
+    </div>}
     <div className="workspace">
       <nav aria-label={tr('Розділи','Sections')}>{pages.map(([key,uk,en],index)=>{
         const Icon=navIcons[index]
-        return <button key={key} aria-current={page===key?'page':undefined} title={tr(uk,en)} onClick={()=>setPage(key)}><Icon size={16}/><span>{tr(uk,en)}</span></button>
+        return <button key={key} className={key === 'models' ? 'tool-group-start' : undefined} aria-current={page===key?'page':undefined} title={tr(uk,en)} onClick={()=>setPage(key)}><Icon size={16}/><span>{tr(uk,en)}</span></button>
       })}</nav>
       <main className={page==='build'&&project?'build-main':undefined}>
         {!(page==='build'&&project)&&<h1>{tr(title[1],title[2])}</h1>}
-        {notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
+        {!toolPage && notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
         {page==='projects' && <div className="grid gap-2">{prefs.projects.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void loadProject(path).catch(flagError)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
-        {!project && !['projects','settings','models','textures'].includes(page) && <div className="empty"><h2>{tr('Відкрий папку мода','Open a mod folder')}</h2><p>{tr('Майстер допоможе підготувати першу збірку.','The setup wizard will prepare your first build.')}</p><button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button></div>}
+        {!project && !['projects','settings','models','textures'].includes(page) &&
+          <div className="empty">
+            <h2>{tr('Збірка мода','Mod build')}</h2>
+            <p>{tr('Відкрий проєкт для збірки або перейди до конвертації файлів.', 'Open a project to build a mod, or switch to file conversion.')}</p>
+            <div className="flex flex-wrap gap-2">
+              <button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати проєкт','Choose project')}</button>
+              <button onClick={()=>setPage('models')}><Box size={15}/>{tr('3D-моделі','3D Models')}</button>
+              <button onClick={()=>setPage('textures')}><Image size={15}/>{tr('Текстури','Textures')}</button>
+            </div>
+          </div>}
         {(modelsVisited || page==='models') && <div hidden={page !== 'models'}>
           <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}>
             <Models language={lng} root={project?.root} settings={settings} onStatus={setModelStatus}/>
@@ -518,31 +527,11 @@ function App() {
             <div className="min-w-0"><h2>{nameOf(project.root)}</h2><small className="path" title={project.root}>{project.root}</small></div>
             <div className="flex flex-wrap gap-2">
               {startButton}
-              <button className="primary" disabled={busy || !settings.remote_host || !project.details.remoteChoice.buildId} onClick={()=>void start('remote')}>
+              <button disabled={busy || !settings.remote_host || !project.details.remoteChoice.buildId} onClick={()=>void start('remote')}>
                 <Server size={15}/>{settings.remote_files_only ? tr('Завантажити пакет через SFTP','Upload package via SFTP') : tr('Оновити віддалений сервер','Update remote server')}<kbd>F6</kbd>
               </button>
             </div>
           </div>
-          <details className="terminal-commands" open>
-            <summary><Terminal size={15}/>{tr('Команди PowerShell','PowerShell commands')}</summary>
-            {(settingsDirty || !project.configured) &&
-              <small>{tr('Під час копіювання налаштування буде збережено для термінала.',
-                'Copying saves the current settings for the terminal.')}</small>}
-            <label>F5 · {tr('Оновити локально','Update locally')}{settings.publish_workshop && ' + Workshop'}</label>
-            {commandLine('update')}
-            <label>F6 · {tr('Розгорнути вибрану збірку','Deploy selected build')}</label>
-            {project.details.commands.remote ? commandLine('remote') :
-              <small>{tr('Команда з’явиться після перевірки першої збірки через F5.',
-                'The command appears after F5 verifies the first build.')}</small>}
-            <label>
-              {tr('Інша дія','Other action')}
-              <select value={terminalAction} onChange={event=>setTerminalAction(event.target.value)}>
-                {Object.keys(project.details.commands).filter(action=>action!=='update'&&action!=='remote').map(action=>
-                  <option key={action} value={action}>{action}</option>)}
-              </select>
-            </label>
-            {commandLine(terminalAction)}
-          </details>
           <div className="workflow-next">
             <strong>{tr('Далі','Next')}</strong>
             <span>{busy?stageText:!ready?tr('Перевір середовище й виправ позначені налаштування.','Review the environment and fix the flagged settings.'):
@@ -580,6 +569,26 @@ function App() {
               <button disabled={busy||!project.details.localBuild.buildId||project.details.sourcesChanged!==false||!settings.workshop} onClick={()=>setConfirmation('publish')}>{tr('Опублікувати вручну','Publish manually')} · {project.details.localBuild.buildId || '—'}</button>
               <button disabled={busy||!project.details.rollback} onClick={()=>setConfirmation('rollback')}>{tr('Відкотити','Roll back')}</button>
             </div>
+          </details>
+          <details className="terminal-commands">
+            <summary><Terminal size={15}/>{tr('Команди PowerShell','PowerShell commands')}</summary>
+            {(settingsDirty || !project.configured) &&
+              <small>{tr('Під час копіювання налаштування буде збережено для термінала.',
+                'Copying saves the current settings for the terminal.')}</small>}
+            <label>F5 · {tr('Оновити локально','Update locally')}{settings.publish_workshop && ' + Workshop'}</label>
+            {commandLine('update')}
+            <label>F6 · {tr('Розгорнути вибрану збірку','Deploy selected build')}</label>
+            {project.details.commands.remote ? commandLine('remote') :
+              <small>{tr('Команда з’явиться після перевірки першої збірки через F5.',
+                'The command appears after F5 verifies the first build.')}</small>}
+            <label>
+              {tr('Інша дія','Other action')}
+              <select value={terminalAction} onChange={event=>setTerminalAction(event.target.value)}>
+                {Object.keys(project.details.commands).filter(action=>action!=='update'&&action!=='remote').map(action=>
+                  <option key={action} value={action}>{action}</option>)}
+              </select>
+            </label>
+            {commandLine(terminalAction)}
           </details>
           <div className="overview-grid">
             <section><div className="section-header"><h2><Activity size={16}/>{tr('Готовність середовища','Environment readiness')}</h2>
@@ -702,10 +711,10 @@ function App() {
       </main>
     </div>
     <footer>
-      <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>
+      {!toolPage && <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>}
       <div className="footer-row"><span aria-live="polite">{page === 'models' ? modelStatus : page === 'textures' ? textureStatus : stageText}</span>
-        {busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
-        <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button></div>
+        {!toolPage&&busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
+        {!toolPage && <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button>}</div>
     </footer>
     {(wizard !== undefined || confirmation) && <div className="overlay" onKeyDown={e=>{if(e.key==='Escape'){setWizard(undefined);setConfirmation(undefined)}}}><div role="dialog" aria-modal="true" aria-label={tr('Налаштування або підтвердження','Setup or confirmation')} className="modal">
       {wizard !== undefined ? <>

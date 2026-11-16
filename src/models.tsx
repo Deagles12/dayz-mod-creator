@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { call, type Settings } from './backend'
 import type { Lang } from './locale'
+import { OutputFolder, useExportFolder } from './export-folder'
 
 type ModelFiles = { folder: string; model: string; texture: string; prefix: string }
 
@@ -109,10 +110,10 @@ export function Models({ language, root, settings, onStatus }: {
   const [model, setModel] = useState('')
   const [preview, setPreview] = useState('')
   const [files, setFiles] = useState<ModelFiles>()
-  const [outputRoot, setOutputRoot] = useState('')
   const [activity, setActivity] = useState<Activity>('idle')
   const [stage, setStage] = useState(0)
   const [error, setError] = useState('')
+  const output = useExportFolder(language, 'models', setError)
   const busy = activity === 'choosing' || activity === 'running'
   const status = {
     idle: tr('Вибери кольоровий GLB', 'Choose a textured GLB'),
@@ -123,16 +124,6 @@ export function Models({ language, root, settings, onStatus }: {
   }[activity]
 
   useEffect(() => onStatus(status), [status, onStatus])
-  useEffect(() => {
-    let active = true
-    void call<{ root: string; latest: ModelFiles | null }>(language, 'modelOutput').then(result => {
-      if (!active) return
-      setOutputRoot(result.root)
-      if (result.latest) setFiles(current => current || result.latest || undefined)
-    }).catch(failure => { if (active) setError(String(failure)) })
-    return () => { active = false }
-  }, [language])
-
   async function choose() {
     setActivity('choosing')
     setError('')
@@ -144,10 +135,11 @@ export function Models({ language, root, settings, onStatus }: {
       }
       setModel(path.split(/[\\/]/).pop() || path)
       setPreview('')
+      setFiles(undefined)
       setStage(0)
       setActivity('running')
       setPreview(await call<string>(language, 'previewModel', { path }))
-      setFiles(await call<ModelFiles>(language, 'exportModel', { path, root, settings }, message => {
+      setFiles(await call<ModelFiles>(language, 'exportModel', { path, root, settings, output: output.destination }, message => {
         if (message.event === 'progress' && message.stage !== undefined && message.stage in stages) {
           const next = message.stage
           setStage(current => Math.max(current, next))
@@ -170,14 +162,15 @@ export function Models({ language, root, settings, onStatus }: {
 
   return <div className="model-tool">
     <button className="primary" disabled={busy} onClick={() => void choose()}><Upload size={16}/>{tr('Вибрати GLB', 'Choose GLB')}</button>
-    <section className="model-status">
+    <OutputFolder language={language} {...output} disabled={busy}/>
+    {activity !== 'idle' && <section className="model-status">
       <div className="model-status-head">
         <strong role="status">{status}</strong>
         {activity === 'running' && <span>{stage + 1} / {stages.length}</span>}
       </div>
       {model && <div className="path">{model}</div>}
       <progress aria-label={tr('Завершено етапів експорту', 'Completed export stages')}
-        max={stages.length} value={activity === 'done' ? stages.length : activity === 'idle' || activity === 'choosing' ? 0 : stage}/>
+        max={stages.length} value={activity === 'done' ? stages.length : activity === 'choosing' ? 0 : stage}/>
       <ol className="model-steps">
         {stages.map(([uk, en], index) => {
           const completed = activity === 'done' || (activity === 'running' || activity === 'error') && index < stage
@@ -189,16 +182,14 @@ export function Models({ language, root, settings, onStatus }: {
         })}
       </ol>
       {error && <p role="alert" className="model-error">{error}</p>}
-    </section>
-    <section className="model-result">
-      <h2>{tr(files && activity !== 'done' ? 'Останній результат' : 'Файли результату',
-        files && activity !== 'done' ? 'Last export' : 'Output files')}</h2>
-      <code className="model-output-path">{files?.folder || outputRoot || '—'}</code>
-      {files && <div className="model-file-list"><code>{files.model}</code><code>data\{files.texture}</code></div>}
-      {(files || outputRoot) && <button onClick={() => void reveal(files?.folder || outputRoot)}>
-        <FolderOpen size={16}/>{tr('Відкрити папку', 'Open folder')}
-      </button>}
-    </section>
+    </section>}
+    {activity === 'idle' && error && <p className="model-error" role="alert">{error}</p>}
+    {files && <section className="model-result">
+      <h2>{tr('Файли результату', 'Output files')}</h2>
+      <code className="model-output-path">{files.folder}</code>
+      <div className="model-file-list"><code>{files.model}</code><code>data\{files.texture}</code></div>
+      <button onClick={() => void reveal(files.folder)}><FolderOpen size={16}/>{tr('Відкрити папку', 'Open folder')}</button>
+    </section>}
     {preview && <Preview data={preview} fallback={tr('3D-прев’ю недоступне.', '3D preview is unavailable.')}/>}
   </div>
 }

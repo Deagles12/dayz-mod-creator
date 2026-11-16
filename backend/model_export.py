@@ -11,7 +11,8 @@ import tempfile
 import time
 
 from locale_studio import tr
-from pipeline import STORE, lines, steam_installs
+from pipeline import lines, steam_installs
+from export_folders import output_folder
 from texture_export import image_to_paa_path
 
 
@@ -48,20 +49,6 @@ def blender_path():
                               'Blender was not found. Install Blender or set DAYZ_BLENDER.'))
 
 
-def model_output():
-    root = STORE / 'models'
-    root.mkdir(parents=True, exist_ok=True)
-    latest = None
-    candidates = sorted(root.glob('**/*.p3d'), key=lambda p: p.stat().st_mtime, reverse=True)
-    for path in candidates:
-        folder = path.parent
-        texture = f'{path.stem}_co.paa'
-        if (folder / 'data' / texture).is_file():
-            latest = {'folder': str(folder), 'model': path.name, 'texture': texture}
-            break
-    return {'root': str(root), 'latest': latest}
-
-
 def export_model(request, progress=lambda stage: None):
     progress(1)
     source, _ = read_glb(request['path'])
@@ -86,7 +73,10 @@ def export_model(request, progress=lambda stage: None):
         raise ValueError(tr('Аддон має непідтримуваний префікс.', 'The addon prefix is unsupported.'))
 
     stem = re.sub(r'[^a-z0-9_]+', '_', source.stem.lower()).strip('_')[:60] or 'model'
-    root = STORE / 'models' / Path(*prefix.split('\\'))
+    custom = request.get('output')
+    root = output_folder('models', custom)
+    if not custom:
+        root = root / Path(*prefix.split('\\'))
     root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='dayz-model-') as temp:
         stage = Path(temp)
