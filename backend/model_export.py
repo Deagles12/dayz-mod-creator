@@ -73,10 +73,7 @@ def export_model(request, progress=lambda stage: None):
         raise ValueError(tr('Аддон має непідтримуваний префікс.', 'The addon prefix is unsupported.'))
 
     stem = re.sub(r'[^a-z0-9_]+', '_', source.stem.lower()).strip('_')[:60] or 'model'
-    custom = request.get('output')
-    root = output_folder('models', custom)
-    if not custom:
-        root = root / Path(*prefix.split('\\'))
+    root = output_folder('models', request.get('output'))
     root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='dayz-model-') as temp:
         stage = Path(temp)
