@@ -7,11 +7,14 @@ from locale_studio import tr
 selected = {}
 
 
+def install_directory():
+    return Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
+
+
 def default_folder(kind):
     if kind not in ('models', 'textures'):
         raise ValueError('Invalid export kind')
-    install = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
-    return (install / 'output' / kind).resolve()
+    return (install_directory() / 'output' / kind).resolve()
 
 
 def output_folder(kind, path=None):
