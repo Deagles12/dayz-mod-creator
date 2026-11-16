@@ -592,6 +592,13 @@ def dispatch(request, emit):
             raise ValueError('Invalid export folder')
         os.startfile(path)
         return None
+    if command == 'hello':
+        return {'hasEnvironment': (STORE / 'environment.json').is_file(), 'interface': optional(STORE / 'interface.json', {}), 'recent': optional(STORE / 'recent.json', {})}
+    if command == 'preferences':
+        save(STORE / 'interface.json', request['value'])
+        return None
+    if command == 'detect':
+        return detect_installs(request['settings'])
     root = Path(request['root']).resolve()
     if not root.is_dir():
         raise FileNotFoundError(root)
