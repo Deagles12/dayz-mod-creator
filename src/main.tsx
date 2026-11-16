@@ -85,7 +85,10 @@ function App() {
   }, [page])
   const [project, setProject] = useState<Project>()
   const [settings, setSettings] = useState<Settings>({})
-  const [busy, setBusy] = useState(false)
+  const [operationBusy, setBusy] = useState(false)
+  const [projectLoading, setProjectLoading] = useState(true)
+  const [workspace, setWorkspace] = useState<string>()
+  const busy = operationBusy || projectLoading
   const [advanced, setAdvanced] = useState(false)
   const [wizard, setWizard] = useState<number>()
   const [confirmation, setConfirmation] = useState<Action>()
@@ -124,18 +127,29 @@ function App() {
       setEntries(text.split(/\r?\n/).filter(Boolean).map(text=>({text,error:isError(text)})))
     }
     if (activate) setPage('overview')
-    if (setup && !found.configured && !environment) setWizard(0)
+    setWizard(setup && !found.configured && !environment ? 0 : undefined)
     const next = {...preference, projects: [found.root, ...preference.projects.filter(path => path !== found.root)].slice(0, 30)}
     setPrefs(next)
     await call(next.language, 'preferences', {value: next})
   }
   useEffect(() => {
-    call<{hasEnvironment: boolean; interface: Partial<Prefs>; recent: {project?: string}}>('uk', 'hello').then(async data => {
+    call<{hasEnvironment: boolean; interface: Partial<Prefs>; workspace: string; recent: string | null}>('uk', 'hello').then(async data => {
       const next = {...defaultPrefs, ...data.interface}
       setPrefs(next)
       setHasEnvironment(data.hasEnvironment)
-      if (data.recent.project) await loadProject(data.recent.project, next, false, data.hasEnvironment, false).catch(() => undefined)
-    }).catch(flagError)
+      setWorkspace(data.workspace)
+      if (data.recent && data.recent !== data.workspace) {
+        try {
+          await loadProject(data.recent, next, false, data.hasEnvironment, false)
+          return
+        } catch (error) {
+          await loadProject(data.workspace, next, false, data.hasEnvironment, false)
+          flagError(error)
+          return
+        }
+      }
+      await loadProject(data.workspace, next, false, data.hasEnvironment, false)
+    }).catch(flagError).finally(() => setProjectLoading(false))
   }, [])
   useEffect(() => {
     document.documentElement.dataset.theme = prefs.theme
@@ -149,11 +163,17 @@ function App() {
       if (project && !busy) await refresh(next.language)
     } catch (error) { flagError(error) }
   }
-  async function chooseProject() {
+  async function chooseProject(root?: string) {
+    if (busy) return
+    setProjectLoading(true)
     try {
-      const folder = await open({directory: true, multiple: false})
+      const folder = root ?? await open({directory: true, multiple: false, defaultPath: project?.root ?? workspace})
       if (typeof folder === 'string') await loadProject(folder)
-    } catch (error) { flagError(error) }
+    } catch (error) {
+      flagError(error)
+    } finally {
+      setProjectLoading(false)
+    }
   }
   async function refresh(language = lng, next = settings) {
     if (!project) return
@@ -470,12 +490,13 @@ function App() {
     <Play size={15}/>{!hasSetup || !ready ? tr('Налаштувати тест','Set up test') : settings.publish_workshop
       ? tr('Оновити локально + Workshop','Update locally + Workshop') : tr('Оновити локально','Update locally')}<kbd>F5</kbd></button>
   const toolPage = page === 'models' || page === 'textures'
+  const projectPaths = [...new Set(workspace ? [workspace, ...prefs.projects] : prefs.projects)]
   return <div className={toolPage ? 'app app-tool' : 'app'}>
     <header className="titlebar" data-tauri-drag-region>
       <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.2</small></span>
       <div className="segments" aria-label={tr('Мова','Language')}>
-        <button aria-pressed={lng==='uk'} onClick={()=>void changePrefs({language:'uk'})}>UA</button>
-        <button aria-pressed={lng==='en'} onClick={()=>void changePrefs({language:'en'})}>EN</button>
+        <button disabled={projectLoading} aria-pressed={lng==='uk'} onClick={()=>void changePrefs({language:'uk'})}>UA</button>
+        <button disabled={projectLoading} aria-pressed={lng==='en'} onClick={()=>void changePrefs({language:'en'})}>EN</button>
       </div>
       <div className="window-buttons">
         <button aria-label={tr('Згорнути','Minimize')} onClick={()=>void desktop.minimize()}><Minus size={15}/></button>
@@ -485,7 +506,7 @@ function App() {
     </header>
     {!toolPage && <div className="toolbar">
       <Menu className="project-switch" disabled={busy} label={<><FolderOpen size={16}/><span className="project-caption" title={project?.root}><strong>{project?nameOf(project.root):tr('Вибрати проєкт','Choose a project')}</strong></span></>}>
-        {close=><>{prefs.projects.map(path=><button key={path} title={path} onClick={()=>{close();void loadProject(path).catch(flagError)}}><Folders size={15}/><span>{nameOf(path)}</span>{path===project?.root&&<span className="muted"> •</span>}</button>)}
+        {close=><>{projectPaths.map(path=><button key={path} title={path} onClick={()=>{close();void chooseProject(path)}}><Folders size={15}/><span>{nameOf(path)}</span>{path===project?.root&&<span className="muted"> •</span>}</button>)}
           <button onClick={()=>{close();void chooseProject()}}><Plus size={15}/>{tr('Відкрити папку…','Open folder…')}</button></>}
       </Menu>
       {project&&<Status tone={busy?'active':ready?'good':'warn'}>{busy?tr('Виконується','Working'):ready?tr('Середовище готове','Environment ready'):tr('Потрібне налаштування','Setup needed')}</Status>}
@@ -500,14 +521,14 @@ function App() {
       <main className={page==='build'&&project?'build-main':undefined}>
         {!(page==='build'&&project)&&<h1>{tr(title[1],title[2])}</h1>}
         {!toolPage && notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
-        {page==='projects' && <div className="grid gap-2">{prefs.projects.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void loadProject(path).catch(flagError)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
+        {page==='projects' && <div className="grid gap-2">{projectPaths.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void chooseProject(path)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
         {!project && !['projects','settings','models','textures'].includes(page) &&
           <div className="empty">
             <h2>{tr('Збірка мода','Mod build')}</h2>
             <p>{tr('Відкрий проєкт для збірки або перейди до конвертації файлів.', 'Open a project to build a mod, or switch to file conversion.')}</p>
             <div className="flex flex-wrap gap-2">
-              <button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати проєкт','Choose project')}</button>
+              <button className="primary" disabled={busy} onClick={()=>void chooseProject()}>{tr('Вибрати проєкт','Choose project')}</button>
               <button onClick={()=>setPage('models')}><Box size={15}/>{tr('3D-моделі','3D Models')}</button>
               <button onClick={()=>setPage('textures')}><Image size={15}/>{tr('Текстури','Textures')}</button>
             </div>

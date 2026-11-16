@@ -28,6 +28,41 @@ class Releases(unittest.TestCase):
         self.settings = {'workshop': 'https://steamcommunity.com/sharedfiles/filedetails/?id=789',
                          'steam_owner': '76561198000000000'}
 
+    def test_portable_project_selection_is_local_to_each_install(self):
+        install = self.root / 'DMC'
+        second_install = self.root / 'DMC copy'
+        external = self.root / 'My other mod'
+        old_profile = self.root / 'profile'
+        for folder in (install, second_install, external):
+            folder.mkdir()
+        save(old_profile / 'recent.json', {'project': str(external)})
+
+        def request(command, **fields):
+            return dispatch(dict(command=command, **fields), Mock())
+
+        with patch('sidecar.STORE', old_profile), patch('sidecar.install_directory', return_value=install) as location:
+            initial = request('hello')
+            workspace = install / 'projekt'
+            self.assertEqual(Path(initial['workspace']), workspace.resolve())
+            self.assertTrue(workspace.is_dir())
+            self.assertIsNone(initial['recent'])
+
+            opened = request('open', root=str(workspace))
+            self.assertEqual(Path(opened['root']), workspace.resolve())
+            self.assertFalse(next(check for check in opened['details']['checks'] if check['key'] == 'sources')['ok'])
+
+            (external / 'config.cpp').write_text('class CfgPatches {};', encoding='utf-8')
+            selected = request('open', root=str(external))
+            self.assertEqual(Path(selected['root']), external.resolve())
+            self.assertEqual(request('hello')['recent'], selected['root'])
+
+            location.return_value = second_install
+            self.assertIsNone(request('hello')['recent'])
+            self.assertTrue((second_install / 'projekt').is_dir())
+            location.return_value = install
+            external.rename(self.root / 'Moved mod')
+            self.assertIsNone(request('hello')['recent'])
+
     def test_workshop_item_links(self):
         self.assertEqual(workshop_item(self.settings['workshop']), 789)
         with self.assertRaises(ValueError):

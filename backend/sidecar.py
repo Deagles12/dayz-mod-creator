@@ -17,7 +17,7 @@ from test_workflow import MACHINE, TestPipeline
 
 from model_export import export_model, read_glb
 from texture_export import convert_textures
-from export_folders import can_reveal, output_folder
+from export_folders import can_reveal, install_directory, output_folder
 from locale_studio import set_language, tr
 from pipeline import STORE, defaults, detect_installs, lines, load, operation_lock, require, required_addons, save
 from remote import LinuxDayZ, select_build
@@ -45,6 +45,10 @@ def stop_server(pid):
 def state(root):
     key = hashlib.sha256(str(root).casefold().encode()).hexdigest()[:20]
     return STORE / 'projects' / key
+
+
+def recent_file():
+    return state(install_directory()) / 'recent.json'
 
 
 def optional(path, fallback):
@@ -78,7 +82,6 @@ def project(root):
     values.setdefault('remote_port', '22')
     values.setdefault('remote_files_only', False)
     values.setdefault('workshop_visibility', 'private')
-    validate_project(root, values)
     return {'root': str(root), 'configured': configured.is_file(), 'settings': values}
 
 
@@ -108,6 +111,7 @@ def readiness(root, settings):
             checks.append({'key': key, 'ok': False, 'detail': str(error)})
 
     def sources():
+        validate_project(root, settings)
         addons = lines(settings['addons'])
         if not addons:
             raise ValueError(tr('Вкажи папку з config.cpp.', 'Choose a folder containing config.cpp.'))
@@ -593,7 +597,13 @@ def dispatch(request, emit):
         os.startfile(path)
         return None
     if command == 'hello':
-        return {'hasEnvironment': (STORE / 'environment.json').is_file(), 'interface': optional(STORE / 'interface.json', {}), 'recent': optional(STORE / 'recent.json', {})}
+        workspace = install_directory() / 'projekt'
+        workspace.mkdir(exist_ok=True)
+        recent = optional(recent_file(), {}).get('project')
+        return {'hasEnvironment': (STORE / 'environment.json').is_file(),
+                'interface': optional(STORE / 'interface.json', {}),
+                'workspace': str(workspace.resolve()),
+                'recent': recent if recent and Path(recent).is_dir() else None}
     if command == 'preferences':
         save(STORE / 'interface.json', request['value'])
         return None
@@ -604,9 +614,9 @@ def dispatch(request, emit):
         raise FileNotFoundError(root)
     if command in ('open', 'snapshot'):
         result = project(root)
-        if command == 'open':
-            save(STORE / 'recent.json', {'project': str(root)})
         result['details'] = details(root, result['settings'])
+        if command == 'open':
+            save(recent_file(), {'project': str(root)})
         return result
     if command == 'serverStatus':
         from pipeline import windows_args
@@ -850,7 +860,7 @@ def terminal(arguments):
 
     root = None
     try:
-        recent = optional(STORE / 'recent.json', {}).get('project') if args.recent else None
+        recent = optional(recent_file(), {}).get('project') if args.recent else None
         if args.recent and not recent:
             raise ValueError(tr('Немає останнього проєкту. Вкажи --project PATH.',
                                 'No recent project. Specify --project PATH.'))
