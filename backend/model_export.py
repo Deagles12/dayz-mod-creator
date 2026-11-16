@@ -11,7 +11,8 @@ import tempfile
 import time
 
 from locale_studio import tr
-from pipeline import STORE, detect_installs, lines, steam_installs
+from pipeline import STORE, lines, steam_installs
+from texture_export import image_to_paa_path
 
 
 def read_glb(value):
@@ -65,10 +66,7 @@ def export_model(request, progress=lambda stage: None):
     progress(1)
     source, _ = read_glb(request['path'])
     settings = request.get('settings', {})
-    tools = detect_installs(settings).get('tools')
-    converter = Path(tools) / 'Bin/ImageToPAA/ImageToPAA.exe' if tools else None
-    if not converter or not converter.is_file():
-        raise FileNotFoundError(tr('ImageToPAA не знайдено в DayZ Tools.', 'ImageToPAA was not found in DayZ Tools.'))
+    converter = image_to_paa_path(settings)
     blender = blender_path()
     prefix = 'dayz_models'
     addons = lines(str(settings.get('addons', '')))

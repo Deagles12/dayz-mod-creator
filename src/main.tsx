@@ -1,4 +1,4 @@
-import { Activity, ArrowUpRight, Box, ChevronRight, CircleHelp, ClipboardList, CloudUpload, FolderOpen, Folders, Gauge, ListFilter, Minus, Monitor, Play, Plus, RefreshCw, Server, Settings2, Square, Terminal, Trash2, X } from 'lucide-react'
+import { Activity, ArrowUpRight, Box, ChevronRight, CircleHelp, ClipboardList, CloudUpload, FolderOpen, Folders, Gauge, Image, ListFilter, Minus, Monitor, Play, Plus, RefreshCw, Server, Settings2, Square, Terminal, Trash2, X } from 'lucide-react'
 import { LogDrawer, Menu, Status } from './ui'
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -9,6 +9,8 @@ import { checks, fields, hints, pages, phases, type Lang, type Page } from './lo
 import './style.css'
 
 const Models = lazy(() => import('./models').then(module => ({ default: module.Models })))
+
+const Textures = lazy(() => import('./textures').then(module => ({ default: module.Textures })))
 
 type Prefs = { language: Lang; theme: 'dark' | 'light'; projects: string[] }
 type Action = 'deploy' | 'launch' | 'retry' | 'build' | 'test' | 'rollback' | 'publish' | 'retry-publish' | 'remote' | 'remote-check' | 'create-workshop'
@@ -75,7 +77,12 @@ function App() {
   const [page, setPage] = useState<Page>('overview')
   const [modelsVisited, setModelsVisited] = useState(false)
   const [modelStatus, setModelStatus] = useState('')
-  useEffect(() => { if (page === 'models') setModelsVisited(true) }, [page])
+  const [texturesVisited, setTexturesVisited] = useState(false)
+  const [textureStatus, setTextureStatus] = useState('')
+  useEffect(() => {
+    if (page === 'models') setModelsVisited(true)
+    if (page === 'textures') setTexturesVisited(true)
+  }, [page])
   const [project, setProject] = useState<Project>()
   const [settings, setSettings] = useState<Settings>({})
   const [busy, setBusy] = useState(false)
@@ -445,7 +452,7 @@ function App() {
   const setupGroup = wizard === undefined ? undefined : groups[wizard]
   const ready = !!project && (project.configured || hasEnvironment) && project.details.checks.length>0 && project.details.checks.every(check=>check.ok)
   const lastTest = project?.details.operations.find(item=>['test','retry','launch'].includes(item.action))
-  const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2,Box]
+  const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2,Box,Image]
   const serverState = live==='ready' ? tr('Порт активний','Listening') : live==='offline' ? tr('Не запущено','Stopped') : tr('Немає підтвердження','Unverified')
   const clientState = lastTest?.connected ? tr('Вхід підтверджено в останньому тесті','Connected in last test') :
     lastTest?.clientLaunched ? tr('Вхід не підтверджено','Connection unverified') : tr('Ще не перевірено','Not tested')
@@ -495,10 +502,15 @@ function App() {
         {notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
         {page==='projects' && <div className="grid gap-2">{prefs.projects.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void loadProject(path).catch(flagError)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
-        {!project && !['projects','settings','models'].includes(page) && <div className="empty"><h2>{tr('Відкрий папку мода','Open a mod folder')}</h2><p>{tr('Майстер допоможе підготувати першу збірку.','The setup wizard will prepare your first build.')}</p><button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button></div>}
+        {!project && !['projects','settings','models','textures'].includes(page) && <div className="empty"><h2>{tr('Відкрий папку мода','Open a mod folder')}</h2><p>{tr('Майстер допоможе підготувати першу збірку.','The setup wizard will prepare your first build.')}</p><button className="primary" onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button></div>}
         {(modelsVisited || page==='models') && <div hidden={page !== 'models'}>
           <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}>
             <Models language={lng} root={project?.root} settings={settings} onStatus={setModelStatus}/>
+          </Suspense>
+        </div>}
+        {(texturesVisited || page==='textures') && <div hidden={page !== 'textures'}>
+          <Suspense fallback={<p role="status">{tr('Відкриваю текстури…', 'Loading textures…')}</p>}>
+            <Textures language={lng} settings={settings} onStatus={setTextureStatus}/>
           </Suspense>
         </div>}
         {project && page==='overview' && <>
@@ -691,7 +703,7 @@ function App() {
     </div>
     <footer>
       <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>
-      <div className="footer-row"><span aria-live="polite">{page === 'models' ? modelStatus : stageText}</span>
+      <div className="footer-row"><span aria-live="polite">{page === 'models' ? modelStatus : page === 'textures' ? textureStatus : stageText}</span>
         {busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
         <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button></div>
     </footer>

@@ -2,7 +2,7 @@ export type Lang = 'uk' | 'en'
 export type Pair = [string, string]
 export const pages = [
   ['overview', 'Огляд', 'Overview'], ['projects', 'Проєкти', 'Projects'], ['build', 'Збірка', 'Build'],
-  ['server', 'Тестовий сервер', 'Test server'], ['workshop', 'Workshop', 'Workshop'], ['settings', 'Налаштування', 'Settings'], ['models', '3D-моделі', '3D Models'],
+  ['server', 'Тестовий сервер', 'Test server'], ['workshop', 'Workshop', 'Workshop'], ['settings', 'Налаштування', 'Settings'], ['models', '3D-моделі', '3D Models'], ['textures', 'Текстури', 'Textures'],
 ] as const
 export type Page = typeof pages[number][0]
 export const checks: Record<string, Pair> = { project: ['Проєкт', 'Project'], sources: ['Джерела', 'Sources'],

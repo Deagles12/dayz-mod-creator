@@ -150,3 +150,4 @@ progress{width:min(170px,22vw);accent-color:var(--focus)}
 .model-output-path { user-select: all; overflow-wrap: anywhere; }
 .model-file-list { display: flex; flex-wrap: wrap; gap: .35rem 1rem; }
 .model-error { color: #ef8d83; overflow-wrap: anywhere; }
+.texture-list { margin: 0; display: grid; gap: .35rem; padding-left: 1.25rem; overflow-wrap: anywhere; }

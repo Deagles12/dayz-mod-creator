@@ -16,6 +16,7 @@ from console import ACTIONS, command as shell_command
 from test_workflow import MACHINE, TestPipeline
 
 from model_export import export_model, model_output, read_glb
+from texture_export import convert_textures, texture_output
 from locale_studio import set_language, tr
 from pipeline import STORE, defaults, detect_installs, lines, load, operation_lock, require, required_addons, save
 from remote import LinuxDayZ, select_build
@@ -573,6 +574,17 @@ def operate(root, request, emit, report_only=False):
 
 def dispatch(request, emit):
     command = request['command']
+    if command == 'textureOutput':
+        return str(texture_output())
+    if command == 'convertTextures':
+        return convert_textures(request['paths'], request.get('settings', {}),
+                                lambda stage, text: emit('progress', stage=stage, text=text))
+    if command == 'revealTextures':
+        path = Path(request['path']).resolve()
+        if not path.is_relative_to(texture_output().resolve()) or not path.is_dir():
+            raise ValueError('Invalid texture output folder')
+        os.startfile(path)
+        return None
     if command == 'previewModel':
         _, data = read_glb(request['path'])
         return base64.b64encode(data).decode('ascii')
