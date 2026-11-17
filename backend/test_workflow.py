@@ -1,6 +1,7 @@
 """Shared machine settings and verified local test workflow."""
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from locale_studio import tr
@@ -146,13 +147,22 @@ class TestPipeline(Pipeline):
             self.check_install(manifest)
         save(self.state / 'retry.json', checkpoint)
         reuse_pid = None
-        if not deploy_only and resume and checkpoint['installed'] and resume.get('serverPid') and resume.get('endpoint') == server_args:
+        readiness_path = self.state / 'server-readiness.json'
+        readiness = load(readiness_path) if readiness_path.is_file() else {}
+        if not deploy_only and resume and checkpoint['installed'] and resume.get('serverPid') and resume.get('endpoint') == server_args and readiness.get('ready') and readiness.get('pid') == resume['serverPid']:
             pid = int(resume['serverPid'])
             owns_port = self.ps(f"@(Get-NetUDPEndpoint -LocalPort {port} -ErrorAction SilentlyContinue | Where-Object OwningProcess -eq {pid}).Count")
             if owns_port.isdecimal() and int(owns_port) > 0:
                 reuse_pid = pid
         if reuse_pid:
             self.stop(server, client, clients_only=True)
+            class RunningServer:
+                pid = reuse_pid
+                returncode = None
+
+                def poll(inner):
+                    return None if self.ps(f'(Get-Process -Id {inner.pid} -ErrorAction SilentlyContinue).Id') else 1
+            self.wait_ready(RunningServer(), port, timeout, {})
             self.report['serverReady'] = True
             checkpoint.update(serverPid=reuse_pid, endpoint=server_args)
             save(self.state / 'retry.json', checkpoint)
@@ -174,6 +184,7 @@ class TestPipeline(Pipeline):
                 process = subprocess.Popen([str(server), *server_args], cwd=server.parent, stdout=console,
                                            stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NEW_CONSOLE,
                                            startupinfo=self.hidden_startup())
+            self.remember_session(process, 'servers')
             self.wait_ready(process, port, timeout, offsets)
             self.report['serverReady'] = True
             save(self.state / 'tested.json', manifest)
@@ -184,7 +195,9 @@ class TestPipeline(Pipeline):
         if open_dayz:
             self.progress(5, ('Запускаю DayZ', 'Launching DayZ'))
             try:
-                subprocess.Popen([str(client), *client_args], cwd=client.parent)
+                client_process = subprocess.Popen([str(client), *client_args], cwd=client.parent)
+                time.sleep(2)
+                self.remember_session(client_process, 'clients')
                 self.report['clientLaunched'] = True
             except OSError as error:
                 self.report['clientError'] = str(error)

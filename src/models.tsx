@@ -8,7 +8,10 @@ import { call, type Settings } from './backend'
 import type { Lang } from './locale'
 import { OutputFolder, useExportFolder } from './export-folder'
 
-type ModelFiles = { folder: string; model: string; texture: string; prefix: string }
+type ModelFiles = { folder: string; model: string; texture: string; prefix: string; validation: {
+  lods: {resolution: number; vertices: number; triangles: number; removedVertices: number}[];
+  uv: boolean; materials: number; collision: boolean
+} }
 
 function Preview({ data, fallback }: { data: string; fallback: string }) {
   const mount = useRef<HTMLDivElement>(null)
@@ -193,6 +196,11 @@ export function Models({ language, root, settings, onStatus }: {
       <h2>{tr('Файли результату', 'Output files')}</h2>
       <code className="model-output-path">{files.folder}</code>
       <div className="model-file-list"><code>{files.model}</code><code>data\{files.texture}</code></div>
+      <h2>{tr('Перевірка P3D','P3D validation')}</h2>
+      {files.validation.lods.map(lod=><div key={lod.resolution}>LOD {lod.resolution} · {lod.vertices} {tr('вершин','vertices')} · {lod.triangles} {tr('трикутників','triangles')} · {tr('видалено невикористаних','unused removed')} {lod.removedVertices}</div>)}
+      <p>UV ✓ · {tr('Матеріалів','Materials')} {files.validation.materials}</p>
+      <p>{tr('Колізія потребує створення Geometry та Fire Geometry LOD перед використанням у грі.',
+             'Author Geometry and Fire Geometry LODs before in-game use.')}</p>
       <button onClick={() => void reveal(files.folder)}><FolderOpen size={16}/>{tr('Відкрити папку', 'Open folder')}</button>
     </section>}
     {preview && <Preview data={preview} fallback={tr('3D-прев’ю недоступне.', '3D preview is unavailable.')}/>}

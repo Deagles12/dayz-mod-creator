@@ -179,6 +179,18 @@ function App() {
       setProjectLoading(false)
     }
   }
+  async function stopSession(force: boolean) {
+    if (!project || busy) return
+    if (force && !window.confirm(tr('Примусово завершити сервер? Незбережений прогрес може втратитися.',
+                                    'Force stop the server? Unsaved progress may be lost.'))) return
+    setBusy(true)
+    try {
+      await call(lng, force ? 'forceStopServer' : 'stopServer', {root: project.root, settings})
+      setNotice(force ? tr('Сервер завершено.','The server has stopped.') : tr('Тестову сесію зупинено.','The test session has stopped.'))
+      await refresh()
+    } catch (error) { flagError(error) }
+    finally { setBusy(false) }
+  }
   async function refresh(language = lng, next = settings) {
     if (!project) return
     const details = await call<Details>(language, 'details', {root: project.root, settings: next})
@@ -682,6 +694,12 @@ function App() {
           </details>
         </>}
         {project && page==='server' && <>
+          <section><h2>{tr('Зупинка тестової сесії','Stop the test session')}</h2>
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy} onClick={()=>void stopSession(false)}>{tr('Зупинити / повторити спробу','Stop / retry')}</button>
+              <button disabled={busy} onClick={()=>void stopSession(true)}>{tr('Примусово завершити власний сервер','Force stop own server')}</button>
+            </div>
+          </section>
           <section><div className="section-header"><h2>{tr('Активний профіль','Active profile')}</h2><Status tone={live==='ready'?'good':'neutral'}>{serverState}</Status></div>
           {['config','profiles','client_profiles','port'].map(key=><div className="check" key={key}><strong>{tr(fields[key][0],fields[key][1])}</strong><small>{String(settings[key] || tr('Типове значення','Default'))}</small></div>)}</section>
           <section><div className="section-header"><h2>{tr('Резервні копії','Backups')}</h2></div>
