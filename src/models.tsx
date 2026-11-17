@@ -161,8 +161,13 @@ export function Models({ language, root, settings, onStatus }: {
   }
 
   return <div className="model-tool">
-    <button className="primary" disabled={busy} onClick={() => void choose()}><Upload size={16}/>{tr('Вибрати GLB', 'Choose GLB')}</button>
-    <OutputFolder language={language} {...output} disabled={busy}/>
+    <section className="tool-input">
+      <div className="tool-file-picker">
+        <p><code>GLB → P3D + PAA</code></p>
+        <button className="primary" disabled={busy} onClick={() => void choose()}><Upload size={16}/>{tr('Вибрати GLB', 'Choose GLB')}</button>
+      </div>
+      <OutputFolder language={language} {...output} disabled={busy}/>
+    </section>
     {activity !== 'idle' && <section className="model-status">
       <div className="model-status-head">
         <strong role="status">{status}</strong>
