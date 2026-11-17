@@ -556,6 +556,11 @@ class Pipeline:
             if created:
                 if self.ps(f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CreationDate.ToUniversalTime().ToString('o')") != str(original['CreationDate']):
                     raise RuntimeError(f'Process identity changed for PID {pid}. Retry shutdown.')
+                if is_server:
+                    session_path = self.state / 'session.json'
+                    session = load(session_path) if session_path.is_file() else {}
+                    session['servers'] = [dict(pid=pid, created=original['CreationDate'])]
+                    save(session_path, session)
             self.log(tr('Зупинка тестового процесу PID {}', 'Stopping test process PID {}').format(pid))
             if is_server:
                 command = [sys.executable]
