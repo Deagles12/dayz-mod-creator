@@ -35,10 +35,13 @@ def stop_server(pid):
     try:
         pids = (ctypes.c_uint32 * 64)()
         count = kernel.GetConsoleProcessList(pids, len(pids))
-        if not count or count > len(pids) or set(pids[:count]) != {pid, os.getpid()}:
+        if not count:
+            return failed('GetConsoleProcessList')
+        if count > len(pids) or set(pids[:count]) != {pid, os.getpid()}:
             print(f'Unsafe console membership: PID {pid}, members {list(pids[:min(count, len(pids))])}', file=sys.stderr)
             return 2
-        kernel.SetConsoleCtrlHandler(None, True)
+        if not kernel.SetConsoleCtrlHandler(None, True):
+            return failed('SetConsoleCtrlHandler')
         if not kernel.GenerateConsoleCtrlEvent(0, 0):
             return failed('GenerateConsoleCtrlEvent')
         time.sleep(.6)
