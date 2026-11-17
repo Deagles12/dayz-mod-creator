@@ -4,6 +4,8 @@ import subprocess
 import sys
 import tempfile
 import struct
+import json
+import math
 
 import bpy
 from mathutils import Vector
@@ -35,7 +37,13 @@ img = links[0].from_node.image if links and links[0].from_node.type == "TEX_IMAG
 if img is None or not img.packed_file or not img.packed_file.data.startswith(b"\x89PNG\r\n\x1a\n"):
     raise ValueError("Expected the Base Color to be embedded as PNG in the GLB.")
 
-bounds = list(map(Vector, obj.bound_box))
+obj.data.calc_loop_triangles()
+used = {vertex for triangle in obj.data.loop_triangles for vertex in triangle.vertices}
+if not used:
+    raise ValueError("Model has no faces.")
+bounds = [obj.data.vertices[index].co.copy() for index in used]
+if not all(math.isfinite(value) for point in bounds for value in point):
+    raise ValueError("Model contains non-finite vertex coordinates.")
 low = Vector(min(p[i] for p in bounds) for i in range(3))
 high = Vector(max(p[i] for p in bounds) for i in range(3))
 origin = (high + low) / 2
@@ -61,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="dayz-paa-") as temp:
 texture = f"{prefix}\\{stem}\\data\\{texture_name}.paa"
 progress(3)
 lods = []
+report = {'uv': True, 'materials': 1, 'texture': texture, 'collision': False, 'lods': []}
 for level, budget in ((1, 10000), (2, 4500), (3, 1800)):
     obj.data.calc_loop_triangles()
     count = len(obj.data.loop_triangles)
@@ -80,20 +89,35 @@ with (stage / (stem + ".p3d")).open("wb") as out:
     for level, mesh in lods:
         mesh.calc_loop_triangles()
         uv = mesh.uv_layers.active.data
-        out.write(struct.pack("<4s6I", b"P3DM", 28, 256, len(mesh.vertices),
-                              len(mesh.corner_normals), len(mesh.loop_triangles), 0))
-        for vertex in mesh.vertices:
+        used_vertices = sorted({vertex for triangle in mesh.loop_triangles for vertex in triangle.vertices})
+        used_corners = sorted({corner for triangle in mesh.loop_triangles for corner in triangle.loops})
+        vertex_indices = {old: new for new, old in enumerate(used_vertices)}
+        normal_indices = {old: new for new, old in enumerate(used_corners)}
+        if max(len(used_vertices), len(used_corners)) > 32767:
+            raise ValueError("The visual LOD exceeds the 32767 point/normal budget.")
+        report['lods'].append({'resolution': level, 'vertices': len(used_vertices),
+                               'removedVertices': len(mesh.vertices) - len(used_vertices),
+                               'triangles': len(mesh.loop_triangles), 'normals': len(used_corners)})
+        out.write(struct.pack("<4s6I", b"P3DM", 28, 256, len(used_vertices),
+                              len(used_corners), len(mesh.loop_triangles), 0))
+        for index in used_vertices:
+            vertex = mesh.vertices[index]
             x, y, z = vertex.co - origin
             out.write(struct.pack("<3fI", x, z, y, 0))
-        for normal in mesh.corner_normals:
+        for index in used_corners:
+            normal = mesh.corner_normals[index]
             x, y, z = normal.vector
             out.write(struct.pack("<3f", -x, -z, -y))
         for triangle in mesh.loop_triangles:
             out.write(struct.pack("<I", 3))
             for vertex, corner in zip(triangle.vertices, triangle.loops):
                 u, v = uv[corner].uv
-                out.write(struct.pack("<IIff", vertex, corner, u, 1 - v))
+                if not all(math.isfinite(value) for value in (u, v)):
+                    raise ValueError("The model contains non-finite UV coordinates.")
+                out.write(struct.pack("<IIff", vertex_indices[vertex], normal_indices[corner], u, 1 - v))
             out.write(bytes(20))
             out.write(texture.encode("ascii") + b"\0\0")
         out.write(b"TAGG\x01#EndOfFile#\0")
         out.write(struct.pack("<If", 0, level))
+
+(stage / 'validation.json').write_text(json.dumps(report, indent=2), encoding='utf-8')

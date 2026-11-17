@@ -518,7 +518,7 @@ class Pipeline:
     def stop(self, server, client, require_idle_port=None, clients_only=False):
         script = """[Console]::OutputEncoding=[Text.Encoding]::UTF8
         @(Get-CimInstance Win32_Process -Filter "Name LIKE 'DayZ%.exe'") |
-        Select-Object ProcessId,ExecutablePath,CommandLine,Name | ConvertTo-Json -Compress"""
+        Select-Object ProcessId,ParentProcessId,@{Name='CreationDate';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}},ExecutablePath,CommandLine,Name | ConvertTo-Json -Compress"""
         current = json.loads(self.ps(script) or '[]')
         current = current if isinstance(current, list) else [current]
         matched = []
@@ -527,7 +527,12 @@ class Pipeline:
             command = windows_args(process['CommandLine']) if process['CommandLine'] else []
             if not raw_path:
                 if process['Name'].lower() in {server.name.lower(), client.name.lower(), 'dayz_x64.exe'}:
-                    raise RuntimeError(tr('Windows не відкрила дані процесу {}. Запусти програму з тим самим рівнем прав.', 'Windows denied access to process {}. Run Studio with the same privilege level.').format(process['Name']))
+                    if process['Name'].lower() == 'dayz_x64.exe':
+                        self.log(tr('Шлях клієнта недоступний. Надсилаю запит закриття вікна PID {}.',
+                                    'Client path unavailable. Requesting window close for PID {}.').format(process['ProcessId']))
+                        matched.append((process['ProcessId'], False))
+                        continue
+                    raise RuntimeError(tr('Windows не відкрила дані процесу {} (PID {}).', 'Windows denied access to process {} (PID {}).').format(process['Name'], process['ProcessId']))
                 continue
             executable = Path(raw_path)
             options = dict(argument.split('=', 1) for argument in command[1:] if '=' in argument)
@@ -546,24 +551,48 @@ class Pipeline:
             elif executable == server or (executable.parent == client.parent and executable.name.lower() in {client.name.lower(), 'dayz_x64.exe'}):
                 raise RuntimeError(tr('Працює інший сеанс DayZ (PID {}): {}. Закрий його або вибери відповідний тестовий профіль.', 'Another DayZ session is running (PID {}): {}. Close it or choose its test profile.').format(process['ProcessId'], executable))
         for pid, is_server in sorted(matched, key=lambda pair: pair[1]):
+            original = next(item for item in current if item['ProcessId'] == pid)
+            created = str(original.get('CreationDate', '')).replace("'", "''")
+            if created:
+                if self.ps(f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CreationDate.ToUniversalTime().ToString('o')") != str(original['CreationDate']):
+                    raise RuntimeError(f'Process identity changed for PID {pid}. Retry shutdown.')
+                if is_server:
+                    session_path = self.state / 'session.json'
+                    session = load(session_path) if session_path.is_file() else {}
+                    session['servers'] = [dict(pid=pid, created=original['CreationDate'])]
+                    save(session_path, session)
             self.log(tr('Зупинка тестового процесу PID {}', 'Stopping test process PID {}').format(pid))
             if is_server:
                 command = [sys.executable]
                 if not getattr(sys, 'frozen', False):
                     command.append(str(Path(__file__).with_name('sidecar.py')))
                 command.extend(['--stop-server', str(pid)])
-                result = subprocess.run(command, creationflags=HIDDEN, timeout=20)
+                result = subprocess.run(command, creationflags=HIDDEN, timeout=20,
+                                        capture_output=True, encoding='utf-8', errors='replace')
                 if result.returncode:
-                    raise RuntimeError(tr('Не вдалося коректно зупинити сервер PID {}. Перевір його консоль.', 'Could not shut down server PID {} gracefully. Check its console.').format(pid))
+                    raise RuntimeError(tr('Не вдалося коректно зупинити сервер PID {}. {}. Повтори зупинку в розділі сервера.',
+                                          'Could not shut down server PID {} gracefully. {}. Retry shutdown on the server page.').format(pid, result.stderr.strip() or result.stdout.strip() or f'exit {result.returncode}'))
             else:
-                subprocess.run(['taskkill.exe', '/PID', str(pid)], creationflags=HIDDEN, capture_output=True)
+                self.ps(f"$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($p) {{ if (-not $p.CloseMainWindow()) {{ throw 'CloseMainWindow failed for PID {pid}' }} }}")
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline and self.ps(f'(Get-Process -Id {pid} -ErrorAction SilentlyContinue).Id'):
                 time.sleep(1)
             if self.ps(f'(Get-Process -Id {pid} -ErrorAction SilentlyContinue).Id'):
-                raise RuntimeError(tr('Не вдалося завершити PID {}.', 'Could not stop PID {}.').format(pid))
+                raise RuntimeError(tr('PID {} не завершився за 20 с після запиту закриття. Повтори спробу.',
+                                      'PID {} did not exit within 20 seconds after the close request. Retry shutdown.').format(pid))
         if require_idle_port and self.ps(f'(Get-NetUDPEndpoint -LocalPort {require_idle_port} -ErrorAction SilentlyContinue).OwningProcess'):
             raise RuntimeError(tr('UDP-порт {} вже зайнятий.', 'UDP port {} is already in use.').format(require_idle_port))
+
+    def remember_session(self, process, kind):
+        path = self.state / 'session.json'
+        session = load(path) if path.is_file() else {}
+        raw = self.ps(f"""@(Get-CimInstance Win32_Process -Filter "Name LIKE 'DayZ%.exe'" |
+            Where-Object {{ $_.ProcessId -eq {process.pid} -or $_.ParentProcessId -eq {process.pid} }} |
+            Select-Object ProcessId,@{{Name='CreationDate';Expression={{$_.CreationDate.ToUniversalTime().ToString('o')}}}}) | ConvertTo-Json -Compress""")
+        rows = json.loads(raw or '[]')
+        rows = rows if isinstance(rows, list) else [rows]
+        session[kind] = [dict(pid=row['ProcessId'], created=row['CreationDate']) for row in rows]
+        save(path, session)
 
     def verify(self, manifest):
         directory = Path(manifest['package'])
@@ -643,9 +672,12 @@ class Pipeline:
                                        stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NEW_CONSOLE,
                                        startupinfo=self.hidden_startup())
         self.log(tr('Сервер PID {}; логи: {}', 'Server PID {}; logs: {}').format(process.pid, self.profiles))
+        self.remember_session(process, 'servers')
         self.wait_ready(process, port, timeout, baseline)
         self.progress(5, ('Запуск клієнта', 'Launching client'))
-        subprocess.Popen([str(client), *client_args], cwd=self.client)
+        client_process = subprocess.Popen([str(client), *client_args], cwd=self.client)
+        time.sleep(2)
+        self.remember_session(client_process, 'clients')
         save(self.state / 'tested.json', manifest)
         self.log(tr('Клієнт запущено для {}:{}. Підключення перевіряється у грі.', 'Client launched for {}:{}. Verify the connection in-game.').format(self.s['address'], port))
 
@@ -661,8 +693,10 @@ class Pipeline:
         return path.suffix.lower() == '.rpt' or (path.name.lower().startswith(('script', 'error')) and path.suffix.lower() == '.log')
 
     def wait_ready(self, process, port, timeout, offsets):
+        save(self.state / 'server-readiness.json', dict(pid=process.pid, ready=False))
         deadline = time.monotonic() + timeout
         recent = {}
+        stable_since = None
         while time.monotonic() < deadline:
             for path in self.profiles.iterdir():
                 if not path.is_file() or not self.is_game_log(path):
@@ -682,16 +716,25 @@ class Pipeline:
                             self.log(line)
                 recent[path] = (text + new)[-500000:]
             logs = '\n'.join(recent.values())
-            if re.search(r"(?i)can't compile|cannot compile|compilation failed|error compiling|missing addons|requires addon|cannot load mission", logs):
-                raise RuntimeError(tr('Помилка старту або компіляції. Логи: {}. Доступний відкат.', 'Startup or compilation failed. Logs: {}. Rollback is available.').format(self.profiles))
+            failure = re.search(r"(?im)^.*(?:can't compile|cannot compile|compilation failed|error compiling|missing addons|requires addon|cannot load mission|Virtual Machine Exception|(?:corrupt|damaged|failed to (?:load|read)).*(?:storage|persistence|save)|(?:storage|persistence|save).*(?:corrupt|damaged|failed)).*$", logs)
+            if failure:
+                raise RuntimeError(tr('Помилка старту: {}. Логи: {}.', 'Startup failed: {}. Logs: {}.').format(failure.group(0).strip(), self.profiles))
             if re.search(r'(?i)\[Server\]\s*::\s*termination in:', logs):
                 raise RuntimeError(tr('Сервер сам почав завершення під час старту. Перевір конфіг, місію та RPT: {}.', 'The server began shutting down during startup. Check its configuration, mission and RPT: {}.').format(self.profiles))
             if process.poll() is not None:
                 raise RuntimeError(tr('Сервер завершився з кодом {}. Логи: {}.', 'The server exited with code {}. Logs: {}.').format(process.returncode, self.profiles))
-            if re.search(r'(?i)Module:\s*Mission\s*;', logs):
+            economy_ready = re.search(r'(?i)\[CE\]\[Hive\].*init sequence finished', logs)
+            if re.search(r'(?i)Module:\s*Mission\s*;', logs) and economy_ready:
                 listener = self.ps(f"@(Get-NetUDPEndpoint -LocalPort {port} -ErrorAction SilentlyContinue | Where-Object OwningProcess -eq {process.pid}).Count")
                 if listener.isdecimal() and int(listener) > 0:
-                    return
+                    stable_since = stable_since or time.monotonic()
+                    if time.monotonic() - stable_since >= 15:
+                        created = self.ps(f"(Get-CimInstance Win32_Process -Filter 'ProcessId={process.pid}').CreationDate.ToUniversalTime().ToString('o')")
+                        save(self.state / 'server-readiness.json', dict(pid=process.pid, created=created,
+                                                                      ready=True, offsets={str(path): offset for path, offset in offsets.items()}))
+                        return
+                else:
+                    stable_since = None
             time.sleep(2)
         raise TimeoutError(tr('Сервер не підтвердив готовність за {} с. Логи: {}.', 'The server did not report readiness within {} seconds. Logs: {}.').format(timeout, self.profiles))
 

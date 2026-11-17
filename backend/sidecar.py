@@ -24,18 +24,26 @@ from remote import LinuxDayZ, select_build
 
 
 def stop_server(pid):
-    kernel = ctypes.windll.kernel32
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    def failed(operation):
+        code = ctypes.get_last_error()
+        print(f'{operation}: WinError {code}: {ctypes.FormatError(code).strip()}', file=sys.stderr)
+        return 1
     kernel.FreeConsole()
     if not kernel.AttachConsole(pid):
-        return 1
+        return failed('AttachConsole')
     try:
         pids = (ctypes.c_uint32 * 64)()
         count = kernel.GetConsoleProcessList(pids, len(pids))
-        if not count or count > len(pids) or set(pids[:count]) != {pid, os.getpid()}:
+        if not count:
+            return failed('GetConsoleProcessList')
+        if count > len(pids) or set(pids[:count]) != {pid, os.getpid()}:
+            print(f'Unsafe console membership: PID {pid}, members {list(pids[:min(count, len(pids))])}', file=sys.stderr)
             return 2
-        kernel.SetConsoleCtrlHandler(None, True)
+        if not kernel.SetConsoleCtrlHandler(None, True):
+            return failed('SetConsoleCtrlHandler')
         if not kernel.GenerateConsoleCtrlEvent(0, 0):
-            return 3
+            return failed('GenerateConsoleCtrlEvent')
         time.sleep(.6)
         return 0
     finally:
@@ -633,7 +641,7 @@ def dispatch(request, emit):
             $rows = foreach ($item in $udp) {{
                 Get-CimInstance Win32_Process -Filter ('ProcessId='+$item.OwningProcess)
             }}
-            @($rows | Select-Object ExecutablePath,CommandLine) | ConvertTo-Json -Compress
+            @($rows | Select-Object ProcessId,@{{Name='CreationDate';Expression={{$_.CreationDate.ToUniversalTime().ToString('o')}}}},ExecutablePath,CommandLine) | ConvertTo-Json -Compress
         """)
         if not raw:
             return 'offline'
@@ -642,10 +650,42 @@ def dispatch(request, emit):
             if row.get('ExecutablePath') and Path(row['ExecutablePath']) == executable and row.get('CommandLine'):
                 for argument in windows_args(row['CommandLine']):
                     if argument.lower().startswith('-profiles=') and executable.parent / argument[10:] == pipeline.profiles:
+                        readiness = optional(pipeline.state / 'server-readiness.json', {})
+                        if readiness.get('pid') != row.get('ProcessId') or readiness.get('created') != row.get('CreationDate') or not readiness.get('ready'):
+                            return 'unknown'
+                        for path in pipeline.profiles.iterdir():
+                            if path.is_file() and pipeline.is_game_log(path):
+                                with path.open('rb') as stream:
+                                    stream.seek(min(path.stat().st_size, readiness.get('offsets', {}).get(str(path), 0)))
+                                    text = stream.read().decode('utf-8', errors='replace')
+                                if re.search(r'(?i)Virtual Machine Exception|(?:storage|persistence|save).*(?:corrupt|damaged|failed)', text):
+                                    return 'unknown'
                         return 'ready'
         return 'unknown'
     if command == 'details':
         return details(root, request['settings'])
+    if command in ('stopServer', 'forceStopServer'):
+        with operation_lock():
+            pipeline = TestPipeline(root, request['settings'], print, lambda *args: None, {})
+            server, client, *_ = pipeline.game_settings()
+            if command == 'stopServer':
+                pipeline.stop(server, client)
+            else:
+                session = optional(pipeline.state / 'session.json', {})
+                if not session.get('servers'):
+                    raise ValueError(tr('Немає збереженої сесії сервера цієї Studio.',
+                                        'No recorded server session for this Studio.'))
+                for record in session.get('servers', []):
+                    pid = int(record['pid'])
+                    created = str(record['created']).replace("'", "''")
+                    pipeline.ps(f"""$p = Get-CimInstance Win32_Process -Filter 'ProcessId={pid}'
+                        if ($p -and $p.CreationDate.ToUniversalTime().ToString('o') -eq '{created}') {{
+                            Stop-Process -Id {pid} -Force -ErrorAction Stop
+                            if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{
+                                Wait-Process -Id {pid} -Timeout 20 -ErrorAction Stop
+                            }}
+                        }}""")
+            return None
     if command in ('steamOwner', 'workshopCheck'):
         from workshop import active_user, item_details
         with operation_lock():
