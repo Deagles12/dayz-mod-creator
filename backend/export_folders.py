@@ -12,13 +12,13 @@ def install_directory():
 
 
 def default_folder(kind):
-    if kind not in ('models', 'textures'):
+    if kind not in ('models', 'textures', 'generator'):
         raise ValueError('Invalid export kind')
     return (install_directory() / 'output' / kind).resolve()
 
 
 def output_folder(kind, path=None):
-    if kind not in ('models', 'textures'):
+    if kind not in ('models', 'textures', 'generator'):
         raise ValueError('Invalid export kind')
     if path:
         folder = Path(path).resolve(strict=True)

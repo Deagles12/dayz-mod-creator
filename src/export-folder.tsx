@@ -4,7 +4,7 @@ import { FolderOpen } from 'lucide-react'
 import { call } from './backend'
 import type { Lang } from './locale'
 
-export function useExportFolder(language: Lang, kind: 'models' | 'textures', onError: (message: string) => void) {
+export function useExportFolder(language: Lang, kind: 'models' | 'textures' | 'generator', onError: (message: string) => void) {
   const [root, setRoot] = useState('')
   const [destination, setDestination] = useState('')
   useEffect(() => {

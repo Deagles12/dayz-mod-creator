@@ -181,6 +181,25 @@ h1 { font-size: 1.5rem; margin-bottom: var(--space-4); }
 .output-folder small { margin-bottom: var(--space-1); }
 .model-preview { border-color: var(--stroke); border-radius: var(--radius); }
 .model-preview > p { color: var(--text); }
+.generator-tool { display: grid; gap: var(--space-4); max-width: 880px; }
+.generator-input { border: 1px solid var(--stroke); border-radius: var(--radius); background: var(--surface); padding: var(--space-4); display: grid; gap: var(--space-4); min-width: 0; }
+.generator-input label { display: grid; gap: var(--space-1); }
+.generator-input select { font: inherit; color: inherit; width: 100%; min-width: 0; padding: 7px 9px; background: var(--input); border: 1px solid var(--stroke); border-radius: var(--radius); }
+.generator-dimensions { display: grid; grid-template-columns: repeat(auto-fit,minmax(120px,1fr)); gap: var(--space-3); }
+.generator-input .generator-color { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.generator-color input[type=color] { flex: none; width: 64px; height: 34px; padding: 3px; }
+.generator-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.generator-blender { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: var(--space-3); }
+.generator-input .output-folder { border-top: 1px solid var(--stroke); padding-top: var(--space-3); }
+.generator-references { display: grid; justify-items: start; gap: var(--space-2); }
+.reference-images { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.reference-images>div { position: relative; }
+.reference-images img { display: block; width: 120px; height: 120px; object-fit: contain; background: var(--bg); border: 1px solid var(--stroke); border-radius: var(--radius); }
+.reference-images button { position: absolute; top: 2px; right: 2px; padding: 3px; min-height: 24px; }
+.generator-input .generator-confirm { display: flex; align-items: center; gap: var(--space-2); }
+.generator-atlas { width: min(100%,384px); height: auto; background: repeating-conic-gradient(var(--input) 0% 25%,var(--bg) 0% 50%) 0 0 / 20px 20px; border: 1px solid var(--stroke); border-radius: var(--radius); }
+.generator-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; font: 12px var(--mono); }
+@media(max-width:720px) { .generator-blender { grid-template-columns: minmax(0,1fr); } .generator-blender button { justify-self: start; } }
 button:active:not(:disabled) { filter: brightness(.92); }
 @media(max-width:720px) {
   nav { padding-inline: var(--space-1); }

@@ -587,6 +587,27 @@ def operate(root, request, emit, report_only=False):
 
 def dispatch(request, emit):
     command = request['command']
+    if command.startswith('generator'):
+        import asset_generator as generator
+        if command == 'generatorInfo':
+            try:
+                blender = str(generator.executable())
+            except FileNotFoundError:
+                blender = ''
+            return dict(templates=generator.TEMPLATES, blender=blender)
+        if command == 'generatorReference':
+            return generator.reference(request['path'])
+        if command == 'generatorTarget':
+            return generator.target(request)
+        if command == 'generatorStart':
+            return generator.start(request)
+        if command == 'generatorStatus':
+            return generator.snapshot(request['job'])
+        if command == 'generatorCancel':
+            return generator.cancel(request['job'])
+        if command == 'generatorReveal':
+            return generator.reveal(request['job'], request.get('blender', False))
+        raise ValueError(command)
     if command == 'exportFolder':
         return str(output_folder(request['kind'], request.get('path')))
     if command == 'convertTextures':

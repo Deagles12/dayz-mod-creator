@@ -9,5 +9,7 @@ subprocess.run([
     '--name', f'dayz-backend-{target}', '--workpath', str(root / '.build/pyinstaller'),
     '--specpath', str(root / '.build'), '--distpath', str(root / 'src-tauri/binaries'),
     '--add-data', str(root / 'backend/model_blender.py') + ':.',
+    *(argument for path in sorted((root / 'backend/generator_blender').glob('*.py'))
+      for argument in ('--add-data', str(path) + ':generator_blender')),
     str(root / 'backend/sidecar.py')
 ], cwd=root, check=True)
