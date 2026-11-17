@@ -63,11 +63,15 @@ export function Textures({ language, settings, onStatus }: {
   }
 
   return <div className="model-tool">
-    <button className="primary" disabled={busy} onClick={() => void choose()}>
-      <Upload size={16}/>{tr('Вибрати файли', 'Choose files')}
-    </button>
-    <p>PNG / JPG / TGA → PAA · PAA → PNG</p>
-    <OutputFolder language={language} {...output} disabled={busy}/>
+    <section className="tool-input">
+      <div className="tool-file-picker">
+        <p><code>PNG / JPG / TGA → PAA</code><code>PAA → PNG</code></p>
+        <button className="primary" disabled={busy} onClick={() => void choose()}>
+          <Upload size={16}/>{tr('Вибрати файли', 'Choose files')}
+        </button>
+      </div>
+      <OutputFolder language={language} {...output} disabled={busy}/>
+    </section>
     {(busy || result || error) && <section className="model-status">
       <div className="model-status-head">
         <strong role="status">{status}</strong>

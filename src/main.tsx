@@ -75,14 +75,18 @@ async function writeClipboard(text: string) {
 function App() {
   const [prefs, setPrefs] = useState(defaultPrefs)
   const [page, setPage] = useState<Page>('overview')
+  const [mediaTool, setMediaTool] = useState<'models' | 'textures'>('models')
+  const toolPage = page === 'media'
+  const showModels = toolPage && mediaTool === 'models'
+  const showTextures = toolPage && mediaTool === 'textures'
   const [modelsVisited, setModelsVisited] = useState(false)
   const [modelStatus, setModelStatus] = useState('')
   const [texturesVisited, setTexturesVisited] = useState(false)
   const [textureStatus, setTextureStatus] = useState('')
   useEffect(() => {
-    if (page === 'models') setModelsVisited(true)
-    if (page === 'textures') setTexturesVisited(true)
-  }, [page])
+    if (showModels) setModelsVisited(true)
+    if (showTextures) setTexturesVisited(true)
+  }, [showModels, showTextures])
   const [project, setProject] = useState<Project>()
   const [settings, setSettings] = useState<Settings>({})
   const [operationBusy, setBusy] = useState(false)
@@ -472,7 +476,7 @@ function App() {
   const setupGroup = wizard === undefined ? undefined : groups[wizard]
   const ready = !!project && (project.configured || hasEnvironment) && project.details.checks.length>0 && project.details.checks.every(check=>check.ok)
   const lastTest = project?.details.operations.find(item=>['test','retry','launch'].includes(item.action))
-  const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2,Box,Image]
+  const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2,Image]
   const serverState = live==='ready' ? tr('Порт активний','Listening') : live==='offline' ? tr('Не запущено','Stopped') : tr('Немає підтвердження','Unverified')
   const clientState = lastTest?.connected ? tr('Вхід підтверджено в останньому тесті','Connected in last test') :
     lastTest?.clientLaunched ? tr('Вхід не підтверджено','Connection unverified') : tr('Ще не перевірено','Not tested')
@@ -489,7 +493,6 @@ function App() {
   const startButton = <button className="primary" disabled={busy || !project} onClick={()=>void start('test')}>
     <Play size={15}/>{!hasSetup || !ready ? tr('Налаштувати тест','Set up test') : settings.publish_workshop
       ? tr('Оновити локально + Workshop','Update locally + Workshop') : tr('Оновити локально','Update locally')}<kbd>F5</kbd></button>
-  const toolPage = page === 'models' || page === 'textures'
   const projectPaths = [...new Set(workspace ? [workspace, ...prefs.projects] : prefs.projects)]
   return <div className={toolPage ? 'app app-tool' : 'app'}>
     <header className="titlebar" data-tauri-drag-region>
@@ -516,29 +519,32 @@ function App() {
     <div className="workspace">
       <nav aria-label={tr('Розділи','Sections')}>{pages.map(([key,uk,en],index)=>{
         const Icon=navIcons[index]
-        return <button key={key} className={key === 'models' ? 'tool-group-start' : undefined} aria-current={page===key?'page':undefined} title={tr(uk,en)} onClick={()=>setPage(key)}><Icon size={16}/><span>{tr(uk,en)}</span></button>
+        return <button key={key} aria-current={page===key?'page':undefined} aria-label={tr(uk,en)} title={tr(uk,en)} onClick={()=>setPage(key)}><Icon size={16}/><span>{tr(uk,en)}</span></button>
       })}</nav>
       <main className={page==='build'&&project?'build-main':undefined}>
         {!(page==='build'&&project)&&<h1>{tr(title[1],title[2])}</h1>}
         {!toolPage && notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
         {page==='projects' && <div className="grid gap-2">{projectPaths.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void chooseProject(path)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
-        {!project && !['projects','settings','models','textures'].includes(page) &&
+        {!project && !['projects','settings','media'].includes(page) &&
           <div className="empty">
             <h2>{tr('Збірка мода','Mod build')}</h2>
             <p>{tr('Відкрий проєкт для збірки або перейди до конвертації файлів.', 'Open a project to build a mod, or switch to file conversion.')}</p>
             <div className="flex flex-wrap gap-2">
               <button className="primary" disabled={busy} onClick={()=>void chooseProject()}>{tr('Вибрати проєкт','Choose project')}</button>
-              <button onClick={()=>setPage('models')}><Box size={15}/>{tr('3D-моделі','3D Models')}</button>
-              <button onClick={()=>setPage('textures')}><Image size={15}/>{tr('Текстури','Textures')}</button>
+              <button onClick={()=>setPage('media')}><Image size={15}/>{tr('Моделі й текстури','Models and textures')}</button>
             </div>
           </div>}
-        {(modelsVisited || page==='models') && <div hidden={page !== 'models'}>
+        {toolPage && <div className="media-tools" role="group" aria-label={tr('Інструменти конвертації','Conversion tools')}>
+          <button aria-pressed={showModels} onClick={()=>setMediaTool('models')}><Box size={16}/>{tr('3D-моделі','3D models')}</button>
+          <button aria-pressed={showTextures} onClick={()=>setMediaTool('textures')}><Image size={16}/>{tr('Конвертація текстур','Texture conversion')}</button>
+        </div>}
+        {(modelsVisited || showModels) && <div hidden={!showModels}>
           <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}>
             <Models language={lng} root={project?.root} settings={settings} onStatus={setModelStatus}/>
           </Suspense>
         </div>}
-        {(texturesVisited || page==='textures') && <div hidden={page !== 'textures'}>
+        {(texturesVisited || showTextures) && <div hidden={!showTextures}>
           <Suspense fallback={<p role="status">{tr('Відкриваю текстури…', 'Loading textures…')}</p>}>
             <Textures language={lng} settings={settings} onStatus={setTextureStatus}/>
           </Suspense>
@@ -582,7 +588,7 @@ function App() {
                 {project.details.remoteChoice.changed && <small>{tr('Для нових змін натисни F5','Use F5 to include newer changes')}</small>}</span>
                 : <button disabled={busy} onClick={()=>{setSettingsGroup(5);setPage('settings')}}>{tr('Налаштування','Settings')}</button>)}
           </div>
-          <details><summary>{tr('Додаткові дії','Additional actions')}</summary>
+          <details className="overview-actions"><summary>{tr('Додаткові дії','Additional actions')}</summary>
             <div className="flex flex-wrap gap-2">
               <button disabled={busy} onClick={()=>void start('build')}>{tr('Лише зібрати','Build only')}</button>
               <button disabled={busy||!ready||!project.details.packageReady} onClick={()=>void start('deploy')}>{tr('Лише встановити','Install only')}</button>
@@ -733,7 +739,7 @@ function App() {
     </div>
     <footer>
       {!toolPage && <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>}
-      <div className="footer-row"><span aria-live="polite">{page === 'models' ? modelStatus : page === 'textures' ? textureStatus : stageText}</span>
+      <div className="footer-row"><span aria-live="polite">{showModels ? modelStatus : showTextures ? textureStatus : stageText}</span>
         {!toolPage&&busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
         {!toolPage && <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button>}</div>
     </footer>
