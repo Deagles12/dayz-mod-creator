@@ -21,6 +21,33 @@ LOCAL = '20261115-112244-ccccdddd'
 
 
 class Releases(unittest.TestCase):
+    def test_texture_cli_without_project_and_partial_failure(self):
+        result = {'folder': 'converted', 'files': [{'source': 'a.png', 'output': 'a.paa'}],
+                  'errors': [{'source': 'b.paa', 'error': 'Invalid texture'}]}
+        output = io.StringIO()
+        def convert(paths, settings, progress, destination):
+            self.assertEqual(paths, ['a.png', 'b.paa'])
+            self.assertEqual(settings['tools'], 'Custom Tools')
+            self.assertEqual(destination, 'Destination')
+            progress(1, 'a.png')
+            return result
+        with patch('sidecar.convert_textures', side_effect=convert), patch('sidecar.project') as project, redirect_stdout(output):
+            self.assertEqual(terminal(['--json', 'textures', 'a.png', 'b.paa',
+                                       '--tools', 'Custom Tools', '--output', 'Destination']), 1)
+            project.assert_not_called()
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(events[0]['event'], 'progress')
+        self.assertEqual(events[-1]['value'], result)
+
+    def test_texture_cli_output_folder_and_validation(self):
+        with patch('sidecar.output_folder', return_value=self.root), patch('sidecar.convert_textures') as convert, \
+                patch('sidecar.os.startfile') as reveal, redirect_stdout(io.StringIO()):
+            self.assertEqual(terminal(['textures', '--show-output', '--open']), 0)
+            reveal.assert_called_once_with(str(self.root))
+            self.assertEqual(terminal(['--json', 'textures']), 1)
+            self.assertEqual(terminal(['--json', 'textures', 'a.png', '--show-output']), 1)
+            convert.assert_not_called()
+
     def setUp(self):
         work = tempfile.TemporaryDirectory()
         self.addCleanup(work.cleanup)

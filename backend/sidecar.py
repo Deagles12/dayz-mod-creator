@@ -828,6 +828,16 @@ def terminal(arguments):
     parser.add_argument('--verbose', action='store_true', help=tr('Показувати повний журнал під час дії',
                                                                  'Stream the full operation log'))
     commands = parser.add_subparsers(dest='action', required=True, metavar='COMMAND')
+    textures = commands.add_parser('textures', allow_abbrev=False,
+                                   help=tr('Конвертувати PNG/JPG/TGA у PAA та PAA у PNG',
+                                           'Convert PNG/JPG/TGA to PAA and PAA to PNG'))
+    textures.add_argument('files', nargs='*', help=tr('Від 1 до 100 файлів', '1 to 100 files'))
+    textures.add_argument('--output', help=tr('Наявна папка результатів', 'Existing output directory'))
+    textures.add_argument('--tools', help=tr('Папка DayZ Tools', 'DayZ Tools directory'))
+    textures.add_argument('--show-output', action='store_true',
+                          help=tr('Показати папку результатів', 'Show the output directory'))
+    textures.add_argument('--open', action='store_true',
+                          help=tr('Відкрити папку результатів', 'Open the output directory'))
     for action, description in ACTIONS.items():
         options = dict(help=tr(*description), description=tr(*description), allow_abbrev=False)
         if action == 'update':
@@ -860,6 +870,38 @@ def terminal(arguments):
 
     root = None
     try:
+        if action == 'textures':
+            if args.show_output and args.files:
+                raise ValueError(tr('--show-output використовуй без файлів.', 'Use --show-output without files.'))
+            if args.show_output:
+                result = {'folder': str(output_folder('textures', args.output)), 'files': [], 'errors': []}
+            else:
+                if not 1 <= len(args.files) <= 100:
+                    raise ValueError(tr('Вибери від 1 до 100 файлів.', 'Choose 1 to 100 files.'))
+                settings = optional(STORE / 'environment.json', {})
+                if args.project or args.recent:
+                    recent = optional(recent_file(), {}).get('project') if args.recent else None
+                    if args.recent and not recent:
+                        raise ValueError(tr('Немає останнього проєкту.', 'No recent project.'))
+                    root = (args.project or Path(recent)).resolve()
+                    settings = project(root)['settings']
+                if args.tools:
+                    settings = {**settings, 'tools': args.tools}
+                result = convert_textures(args.files, settings,
+                                          lambda stage, text: emit('progress', stage=stage,
+                                                                   label=f'{stage}/{len(args.files)} · {text}'),
+                                          args.output)
+            if args.json:
+                emit('result', value=result)
+            else:
+                print(result['folder'])
+                for converted in result['files']:
+                    print(f"{converted['source']} → {converted['output']}")
+                for failure in result['errors']:
+                    print(f"{failure['source']} · {failure['error']}", file=sys.stderr)
+            if args.open:
+                os.startfile(result['folder'])
+            return 1 if result['errors'] else 0
         recent = optional(recent_file(), {}).get('project') if args.recent else None
         if args.recent and not recent:
             raise ValueError(tr('Немає останнього проєкту. Вкажи --project PATH.',
@@ -929,7 +971,7 @@ def terminal(arguments):
             emit('error', text=str(error))
         else:
             print(str(error), file=sys.stderr)
-            if root and root.is_dir() and action != 'status':
+            if root and root.is_dir() and action not in ('status', 'textures'):
                 print(tr('Далі', 'Next') + ' · ' + shell_command(root, 'status'), file=sys.stderr)
         return 1
 

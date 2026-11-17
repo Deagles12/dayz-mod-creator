@@ -19,6 +19,26 @@ Windows-застосунок для збірки й тестування мод�
 
 ## PowerShell
 
+### Текстури через CLI
+
+Команда `textures` підтримує той самий пакетний конвертер, що й розділ **Моделі й текстури → Конвертація текстур**. Напрямок визначається розширенням кожного файла. Можна передати разом PNG, JPG/JPEG, TGA та PAA, від 1 до 100 файлів.
+
+```powershell
+.\dayz-backend.exe textures 'D:\Textures\wall_co.png' 'D:\Textures\wood_co.paa'
+.\dayz-backend.exe textures 'D:\Textures\wall_co.png' --output 'D:\Textures\Converted' --tools 'F:\Steam\steamapps\common\DayZ Tools' --open
+.\dayz-backend.exe textures --show-output
+.\dayz-backend.exe textures --show-output --output 'D:\Textures\Converted' --open
+.\dayz-backend.exe --json textures 'D:\Textures\wall_co.png'
+.\dayz-backend.exe --recent textures 'D:\Textures\wall_co.png'
+.\dayz-backend.exe --project 'D:\Mods\MyMod' textures 'D:\Textures\wall_co.png'
+.\dayz-mod-studio.exe --cli textures 'D:\Textures\wall_co.png'
+.\dayz-backend.exe textures --help
+```
+
+Типова папка результатів — `output\textures` поруч із EXE. `--output` вибирає наявну папку, а кожна конвертація створює всередині окрему `export-…`. `--show-output` показує папку без конвертації, `--open` відкриває її у Провіднику. Для обробки потрібен ImageToPAA із DayZ Tools. Без вибраного проєкту використовуються спільні налаштування середовища та автоматичний пошук інсталяції. `--project` або `--recent` підхоплює налаштування проєкту, `--tools` задає шлях для поточного виклику.
+
+Звичайний вивід містить прогрес, папку результатів і список файлів. Помилки окремих файлів потрапляють у stderr, обробка решти продовжується. Код завершення — `0` за успіху, `1` за будь-якої помилки конвертації, `2` за помилки аргументів. `--json` повертає JSON-рядки з подіями `progress`, `result` або `error`. Результат містить `folder`, `files` та `errors`.
+
 Запускай із папки EXE. На **Огляді → Команди PowerShell** можна скопіювати команди з фактичним шляхом до проєкту та ID збірки.
 
 ```powershell
