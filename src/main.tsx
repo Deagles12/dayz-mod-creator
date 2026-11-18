@@ -11,7 +11,6 @@ import './style.css'
 const Models = lazy(() => import('./models').then(module => ({ default: module.Models })))
 
 const Textures = lazy(() => import('./textures').then(module => ({ default: module.Textures })))
-const Generator = lazy(() => import('./generator').then(module => ({ default: module.Generator })))
 
 type Prefs = { language: Lang; theme: 'dark' | 'light'; projects: string[] }
 type Action = 'deploy' | 'launch' | 'retry' | 'build' | 'test' | 'rollback' | 'publish' | 'retry-publish' | 'remote' | 'remote-check' | 'create-workshop'
@@ -76,13 +75,10 @@ async function writeClipboard(text: string) {
 function App() {
   const [prefs, setPrefs] = useState(defaultPrefs)
   const [page, setPage] = useState<Page>('overview')
-  const [mediaTool, setMediaTool] = useState<'models' | 'textures' | 'generator'>('models')
+  const [mediaTool, setMediaTool] = useState<'models' | 'textures'>('models')
   const toolPage = page === 'media'
   const showModels = toolPage && mediaTool === 'models'
   const showTextures = toolPage && mediaTool === 'textures'
-  const showGenerator = toolPage && mediaTool === 'generator'
-  const [generatorVisited, setGeneratorVisited] = useState(false)
-  const [generatorStatus, setGeneratorStatus] = useState('')
   const [modelsVisited, setModelsVisited] = useState(false)
   const [modelStatus, setModelStatus] = useState('')
   const [texturesVisited, setTexturesVisited] = useState(false)
@@ -90,8 +86,7 @@ function App() {
   useEffect(() => {
     if (showModels) setModelsVisited(true)
     if (showTextures) setTexturesVisited(true)
-    if (showGenerator) setGeneratorVisited(true)
-  }, [showModels, showTextures, showGenerator])
+  }, [showModels, showTextures])
   const [project, setProject] = useState<Project>()
   const [settings, setSettings] = useState<Settings>({})
   const [operationBusy, setBusy] = useState(false)
@@ -555,7 +550,6 @@ function App() {
         {toolPage && <div className="media-tools" role="group" aria-label={tr('Інструменти конвертації','Conversion tools')}>
           <button aria-pressed={showModels} onClick={()=>setMediaTool('models')}><Box size={16}/>{tr('3D-моделі','3D models')}</button>
           <button aria-pressed={showTextures} onClick={()=>setMediaTool('textures')}><Image size={16}/>{tr('Конвертація текстур','Texture conversion')}</button>
-          <button aria-pressed={showGenerator} onClick={()=>setMediaTool('generator')}><Box size={16}/>{tr('Генератор 3D','3D Generator')}</button>
         </div>}
         {(modelsVisited || showModels) && <div hidden={!showModels}>
           <Suspense fallback={<p role="status">{tr('Завантажую перегляд…', 'Loading preview…')}</p>}>
@@ -565,11 +559,6 @@ function App() {
         {(texturesVisited || showTextures) && <div hidden={!showTextures}>
           <Suspense fallback={<p role="status">{tr('Відкриваю текстури…', 'Loading textures…')}</p>}>
             <Textures language={lng} settings={settings} onStatus={setTextureStatus}/>
-          </Suspense>
-        </div>}
-        {(generatorVisited || showGenerator) && <div hidden={!showGenerator}>
-          <Suspense fallback={<p role="status">{tr('Завантажую генератор…','Loading generator…')}</p>}>
-            <Generator language={lng} onStatus={setGeneratorStatus}/>
           </Suspense>
         </div>}
         {project && page==='overview' && <>
@@ -768,7 +757,7 @@ function App() {
     </div>
     <footer>
       {!toolPage && <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>}
-      <div className="footer-row"><span aria-live="polite">{showModels ? modelStatus : showTextures ? textureStatus : showGenerator ? generatorStatus : stageText}</span>
+      <div className="footer-row"><span aria-live="polite">{showModels ? modelStatus : showTextures ? textureStatus : stageText}</span>
         {!toolPage&&busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
         {!toolPage && <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button>}</div>
     </footer>

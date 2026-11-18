@@ -9,11 +9,8 @@ subprocess.run([
     '--name', f'dayz-backend-{target}', '--workpath', str(root / '.build/pyinstaller'),
     '--specpath', str(root / '.build'), '--distpath', str(root / 'src-tauri/binaries'),
     '--add-data', str(root / 'backend/model_blender.py') + ':.',
-    *(argument for path in sorted((root / 'backend/generator_blender').glob('*.py'))
-      for argument in ('--add-data', str(path) + ':generator_blender')),
     *(argument for path in sorted((root / 'tools/3D-Generator').rglob('*'))
       if path.is_file() and path.suffix in ('.py', '.ps1', '.md', '.json') and '__pycache__' not in path.parts
       for argument in ('--add-data', str(path) + ':archive_tools/' + path.relative_to(root / 'tools/3D-Generator').parent.as_posix())),
-    '--add-data', str(root / 'backend/generator_blender/validation.py') + ':archive_tools',
     str(root / 'backend/sidecar.py')
 ], cwd=root, check=True)

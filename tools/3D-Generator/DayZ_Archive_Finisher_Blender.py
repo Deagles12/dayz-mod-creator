@@ -9,9 +9,6 @@ import bpy
 import bmesh
 
 sys.path.insert(0, str(Path(__file__).parent))
-fallback = Path(__file__).resolve().parents[2] / 'backend/generator_blender'
-if fallback.is_dir():
-    sys.path.append(str(fallback))
 from pbr_materials import build, category
 from pbr_bake import unwrap, bake, assign
 from pbr_export import export, verify_glb, image_statistics, renders

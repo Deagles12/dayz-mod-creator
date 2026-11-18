@@ -12,21 +12,17 @@ CATEGORIES = ('Painted Metal', 'Rusted Steel', 'Weathered Wood', 'Dirty Fabric',
 
 def ensure_workspace(install=None):
     root = (install or install_directory()) / '3D-Generator'
-    for relative in ('incoming', 'ready', 'generated', *(f'materials/{kind}' for kind in CATEGORIES)):
+    for relative in ('incoming', 'ready', *(f'materials/{kind}' for kind in CATEGORIES)):
         (root / relative).mkdir(parents=True, exist_ok=True)
     if getattr(sys, 'frozen', False):
         source = Path(__file__).with_name('archive_tools')
-        shared_validation = source / 'validation.py'
     else:
         source = Path(__file__).resolve().parents[1] / 'tools/3D-Generator'
-        shared_validation = Path(__file__).with_name('generator_blender') / 'validation.py'
     manifest_path = root / '.studio-tools.json'
     previous = load(manifest_path).get('files', {}) if manifest_path.is_file() else {}
     installed = dict(previous)
     resources = [(path, path.relative_to(source)) for path in source.rglob('*')
                  if path.is_file() and path.suffix in ('.py', '.ps1', '.md', '.json') and '__pycache__' not in path.parts]
-    if shared_validation.is_file() and not any(relative.as_posix() == 'validation.py' for _, relative in resources):
-        resources.append((shared_validation, Path('validation.py')))
     for path, relative in resources:
         destination = root / relative
         new_hash = hashlib.sha256(path.read_bytes()).hexdigest()

@@ -13,7 +13,7 @@ type ModelFiles = { folder: string; model: string; texture: string; prefix: stri
   uv: boolean; materials: number; collision: boolean
 } }
 
-export function Preview({ data, fallback }: { data: string; fallback: string }) {
+function Preview({ data, fallback }: { data: string; fallback: string }) {
   const mount = useRef<HTMLDivElement>(null)
   const [failed, setFailed] = useState(false)
   useEffect(() => {

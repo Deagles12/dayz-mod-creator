@@ -13,12 +13,11 @@ class ArchiveWorkspace(unittest.TestCase):
             install = Path(directory)
             root = ensure_workspace(install)
             self.assertEqual(root, install / '3D-Generator')
-            for name in ('incoming', 'ready', 'generated', 'materials/Weathered Wood'):
+            for name in ('incoming', 'ready', 'materials/Weathered Wood'):
                 self.assertTrue((root / name).is_dir())
             for name in ('Process_DayZ_Archives.ps1', 'DayZ_Archive_Finisher_Blender.py', 'validation.py'):
                 self.assertGreater((root / name).stat().st_size, 0)
             with patch('export_folders.install_directory', return_value=install):
-                self.assertEqual(default_folder('generator'), root / 'generated')
                 self.assertEqual(default_folder('textures'), install / 'output/textures')
 
     def test_preserves_user_edits_and_existing_archives(self):
