@@ -590,11 +590,17 @@ def dispatch(request, emit):
     if command.startswith('generator'):
         import asset_generator as generator
         if command == 'generatorInfo':
+            from archive_workspace import ensure_workspace
+            workspace = ensure_workspace(install_directory())
             try:
                 blender = str(generator.executable())
             except FileNotFoundError:
                 blender = ''
-            return dict(templates=generator.TEMPLATES, blender=blender)
+            return dict(templates=generator.TEMPLATES, blender=blender, workspace=str(workspace))
+        if command == 'generatorWorkspaceReveal':
+            from archive_workspace import ensure_workspace
+            os.startfile(ensure_workspace(install_directory()))
+            return None
         if command == 'generatorReference':
             return generator.reference(request['path'])
         if command == 'generatorTarget':
@@ -626,6 +632,8 @@ def dispatch(request, emit):
         os.startfile(path)
         return None
     if command == 'hello':
+        from archive_workspace import ensure_workspace
+        ensure_workspace(install_directory())
         workspace = install_directory() / 'projekt'
         workspace.mkdir(exist_ok=True)
         recent = optional(recent_file(), {}).get('project')

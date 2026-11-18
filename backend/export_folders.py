@@ -14,6 +14,8 @@ def install_directory():
 def default_folder(kind):
     if kind not in ('models', 'textures', 'generator'):
         raise ValueError('Invalid export kind')
+    if kind == 'generator':
+        return (install_directory() / '3D-Generator' / 'generated').resolve()
     return (install_directory() / 'output' / kind).resolve()
 
 

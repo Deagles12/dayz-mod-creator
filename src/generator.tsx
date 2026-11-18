@@ -50,7 +50,7 @@ export function Generator({ language, onStatus }: { language: Lang; onStatus: (t
   useEffect(() => onStatus(status), [status, onStatus])
   useEffect(() => {
     let active = true
-    void call<{ templates: Template[]; blender: string }>(language, 'generatorInfo').then(info => {
+    void call<{ templates: Template[]; blender: string; workspace: string }>(language, 'generatorInfo').then(info => {
       if (active) { setTemplates(info.templates); setBlender(previous => previous || info.blender) }
     }).catch(failure => { if (active) setError(String(failure)) })
     return () => { active = false }
@@ -166,6 +166,7 @@ export function Generator({ language, onStatus }: { language: Lang; onStatus: (t
       </div>
       <div className="generator-blender"><div><small>Blender</small><code className="model-output-path">{blender || tr('Вибери blender.exe', 'Choose blender.exe')}</code></div>
         <button onClick={() => void chooseBlender().catch(failure => setError(String(failure)))}><FolderOpen size={16}/>{tr('Вибрати Blender', 'Choose Blender')}</button></div>
+      <button onClick={() => void call(language, 'generatorWorkspaceReveal').catch(failure => setError(String(failure)))}><FolderOpen size={16}/>{tr('Архіви й матеріали · 3D-Generator', 'Archives and materials · 3D-Generator')}</button>
       <OutputFolder language={language} {...output} disabled={busy}/>
     </fieldset>
     {replace && <section role="alert"><p>{tr('Замінити попередні файли предмета?', 'Replace the existing item files?')}</p>
