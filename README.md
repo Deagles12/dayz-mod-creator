@@ -1,6 +1,6 @@
 # DayZ Mod Studio
 
-Windows-застосунок для збірки й тестування модів DayZ, локальної генерації 3D-предметів та конвертації моделей і текстур. [Релізи на GitHub](https://github.com/Deagles12/dayz-mod-studio/releases)
+Windows-застосунок для збірки й тестування модів DayZ та конвертації 3D-моделей і текстур. [Релізи на GitHub](https://github.com/Deagles12/dayz-mod-studio/releases)
 
 ## Запуск
 
