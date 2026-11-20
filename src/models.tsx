@@ -232,8 +232,8 @@ export function Models({ language, root, settings, onStatus }: {
         size: tr('Вибери P3D розміром до 64 МБ.', 'Choose a P3D file of up to 64 MB.'),
       }
       const version = /^version:(\d+)$/.exec(reason)
-      setP3dError(version ? tr(`ODOL v${version[1]} не підтримується. Підтримуються версії 53–56.`,
-        `ODOL v${version[1]} is unsupported. Supported versions are 53–56.`) : messages[reason] ?? reason)
+      setP3dError(version ? tr(`ODOL v${version[1]} не підтримується. Підтримуються версії 53-56.`,
+        `ODOL v${version[1]} is unsupported. Supported versions are 53-56.`) : messages[reason] ?? reason)
     } finally {
       setP3dBusy(false)
     }
@@ -250,7 +250,7 @@ export function Models({ language, root, settings, onStatus }: {
   return <div className="model-tool">
     <section className="tool-input">
       <div className="tool-file-picker">
-        <p><code>GLB → P3D + PAA</code></p>
+        <p>{tr('Експорт GLB у P3D і PAA', 'Export GLB to P3D and PAA')}</p>
         <div className="tool-file-actions">
           <button className="primary" disabled={busy} onClick={() => void choose()}><Upload size={16}/>{tr('Вибрати GLB', 'Choose GLB')}</button>
           <button disabled={busy} onClick={() => void openP3d()}><Box size={16}/>{tr('Відкрити P3D', 'Open P3D')}</button>

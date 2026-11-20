@@ -35,7 +35,7 @@ export function OutputFolder({ language, path, chooseFolder, disabled }: {
   return <div className="output-folder">
     <div className="min-w-0">
       <small>{language === 'uk' ? 'Зберігати в' : 'Save to'}</small>
-      <code className="model-output-path">{path || '—'}</code>
+      <code className="model-output-path">{path || '-'}</code>
     </div>
     <button disabled={disabled} onClick={() => void chooseFolder()}><FolderOpen size={16}/>
       {language === 'uk' ? 'Вибрати папку' : 'Choose folder'}

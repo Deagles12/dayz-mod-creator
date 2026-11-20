@@ -586,15 +586,15 @@ function App() {
               ? tr('Відповідають локальній збірці','Match the last local build') : tr('Відбиток ще не звірено','Fingerprint unavailable'),
               project.details.sourcesChanged === false ? 'ready' : 'pending')}
             {workflowRow(tr('Локальний сервер','Local server'),
-              project.details.localBuild.buildId ? [tr('Остання відома збірка','Last known build'), project.details.localBuild.buildId, project.details.localBuild.date && new Date(project.details.localBuild.date).toLocaleString()].filter(Boolean).join(' · ') : '—',
+              project.details.localBuild.buildId ? [tr('Остання відома збірка','Last known build'), project.details.localBuild.buildId, project.details.localBuild.date && new Date(project.details.localBuild.date).toLocaleString()].filter(Boolean).join(' · ') : '-',
               project.details.localBuild.buildId ? 'known' : 'pending')}
             {workflowRow('Workshop',
-              [project.details.published.buildId, project.details.published.date && new Date(project.details.published.date).toLocaleString(), project.details.published.changed && tr('Є нові зміни','Newer source changes')].filter(Boolean).join(' · ') || '—',
+              [project.details.published.buildId, project.details.published.date && new Date(project.details.published.date).toLocaleString(), project.details.published.changed && tr('Є нові зміни','Newer source changes')].filter(Boolean).join(' · ') || '-',
               project.details.published.buildId ? 'confirmed' : 'pending',
               project.details.publication.status === 'failed' ? <button disabled={busy} onClick={()=>void start('retry-publish')}>{tr('Повторити публікацію','Retry publication')} · {project.details.publication.buildId}</button>
                 : ['pending','uncertain'].includes(project.details.publication.status || '') ? <span>{tr('Перевір результат у Steam','Check the result in Steam')} · {project.details.publication.buildId}</span> : undefined)}
             {workflowRow(tr('Віддалений сервер','Remote server'),
-              project.details.remoteBuild.buildId ? [project.details.remoteBuild.buildId, project.details.remoteBuild.date && new Date(project.details.remoteBuild.date).toLocaleString(), project.details.remoteBuild.changed && tr('Є нові зміни','Newer source changes')].filter(Boolean).join(' · ') : '—',
+              project.details.remoteBuild.buildId ? [project.details.remoteBuild.buildId, project.details.remoteBuild.date && new Date(project.details.remoteBuild.date).toLocaleString(), project.details.remoteBuild.changed && tr('Є нові зміни','Newer source changes')].filter(Boolean).join(' · ') : '-',
               project.details.remoteBuild.buildId ? 'known' : 'pending',
               project.details.remoteChoice.buildId ? <span>F6 · {project.details.remoteChoice.buildId}
                 {project.details.remoteChoice.changed && <small>{tr('Для нових змін натисни F5','Use F5 to include newer changes')}</small>}</span>
@@ -605,7 +605,7 @@ function App() {
               <button disabled={busy} onClick={()=>void start('build')}>{tr('Лише зібрати','Build only')}</button>
               <button disabled={busy||!ready||!project.details.packageReady} onClick={()=>void start('deploy')}>{tr('Лише встановити','Install only')}</button>
               <button disabled={busy||!ready||!project.details.deployment} onClick={()=>void start('launch')}>{tr('Лише запустити','Launch only')}</button>
-              <button disabled={busy||!project.details.localBuild.buildId||project.details.sourcesChanged!==false||!settings.workshop} onClick={()=>setConfirmation('publish')}>{tr('Опублікувати вручну','Publish manually')} · {project.details.localBuild.buildId || '—'}</button>
+              <button disabled={busy||!project.details.localBuild.buildId||project.details.sourcesChanged!==false||!settings.workshop} onClick={()=>setConfirmation('publish')}>{tr('Опублікувати вручну','Publish manually')} · {project.details.localBuild.buildId || '-'}</button>
               <button disabled={busy||!project.details.rollback} onClick={()=>setConfirmation('rollback')}>{tr('Відкотити','Roll back')}</button>
             </div>
           </details>
@@ -664,10 +664,10 @@ function App() {
             </div>
           </div>
           <div className="build-metrics">
-            <span>{tr('ЧАС','TIME')}: <b>{lastBuild?lastBuild.seconds+' s':'—'}</b></span>
-            <span>PBO: <b>{latestPackage?.count??'—'}</b></span>
-            <span>{tr('ПОПЕРЕДЖЕННЯ','WARNINGS')}: <b className={lastBuild?.warnings?'warning':''}>{lastBuild?.warnings??'—'}</b></span>
-            <span>{tr('ПІДПИС','SIGNATURE')}: <b>{latestPackage?.signed?tr('Перевірено','Verified'):settings.sign?'—':tr('Вимкнено','Disabled')}</b></span>
+            <span>{tr('ЧАС','TIME')}: <b>{lastBuild?lastBuild.seconds+' s':'-'}</b></span>
+            <span>PBO: <b>{latestPackage?.count??'-'}</b></span>
+            <span>{tr('ПОПЕРЕДЖЕННЯ','WARNINGS')}: <b className={lastBuild?.warnings?'warning':''}>{lastBuild?.warnings??'-'}</b></span>
+            <span>{tr('ПІДПИС','SIGNATURE')}: <b>{latestPackage?.signed?tr('Перевірено','Verified'):settings.sign?'-':tr('Вимкнено','Disabled')}</b></span>
           </div>
           <div className="build-stages">{[[tr('Підготовка й пакування PBO','Preflight and PBO packaging'),tr('Перевірка джерел і збірка AddonBuilder','Source checks and AddonBuilder')],
             [tr('Цифровий підпис','Digital signature'),'DSSignFile · DSCheckSignatures'],
@@ -706,7 +706,7 @@ function App() {
           {!project.details.backups.length&&<p>{tr('Копії з’являться після першого локального встановлення.','Backups appear after the first local deployment.')}</p>}
           {project.details.backups.map(path=><button className="project-card" key={path} onClick={()=>void reveal(path)}>{nameOf(path)}</button>)}</section>
         </>}
-        {project && page==='workshop' && <section><h2>Workshop · {(checkedItem?.input === settings.workshop && checkedItem?.title) || String(settings.workshop_title || settings.workshop || '—')}</h2>
+        {project && page==='workshop' && <section><h2>Workshop · {(checkedItem?.input === settings.workshop && checkedItem?.title) || String(settings.workshop_title || settings.workshop || '-')}</h2>
           <p>{project.details.published.buildId ? tr('Остання підтверджена публікація','Last confirmed publication') + ' · ' + project.details.published.buildId : tr('Публікацію ще не підтверджено','Awaiting confirmed publication')}</p>
           {(!settings.workshop || project.details.workshopDraft.status) && <fieldset disabled={busy}>
             {form(['workshop_title','workshop_description','workshop_preview','workshop_visibility'])}

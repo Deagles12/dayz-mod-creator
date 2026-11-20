@@ -65,7 +65,7 @@ export function Textures({ language, settings, onStatus }: {
   return <div className="model-tool">
     <section className="tool-input">
       <div className="tool-file-picker">
-        <p><code>PNG / JPG / TGA → PAA</code><code>PAA → PNG</code></p>
+        <p>{tr('PNG, JPG, JPEG і TGA у PAA. PAA у PNG.', 'PNG, JPG, JPEG and TGA to PAA. PAA to PNG.')}</p>
         <button className="primary" disabled={busy} onClick={() => void choose()}>
           <Upload size={16}/>{tr('Вибрати файли', 'Choose files')}
         </button>
@@ -86,7 +86,9 @@ export function Textures({ language, settings, onStatus }: {
       <h2>{tr('Файли результату', 'Output files')}</h2>
       <code className="model-output-path">{result.folder}</code>
       {result?.files.length ? <ul className="texture-list">
-        {result.files.map(file => <li key={file.output}><code>{file.source}</code> → <code>{file.output}</code></li>)}
+        {result.files.map(file => <li key={file.output}>
+          <code>{file.source}</code>{tr(' збережено як ', ' saved as ')}<code>{file.output}</code>
+        </li>)}
       </ul> : null}
       {result?.errors.length ? <ul className="texture-list model-error" role="alert">
         {result.errors.map((failure, index) => <li key={index}><strong>{failure.source}</strong> · {failure.error}</li>)}

@@ -1,4 +1,4 @@
-# DayZ 3D Generator — текстурування 3.0
+# DayZ 3D Generator - текстурування 3.0
 
 Папка 3D-Generator створюється поруч із EXE Studio. Тут розміщені пакетний обробник, finisher, incoming для архівів, ready для результатів та materials для локальної бібліотеки.
 
@@ -18,7 +18,7 @@ Force потрібен для заміни результату. Поперед�
 
 Це окремий наближений профіль для Super shader. Він створює PNG, PAA, RVMAT і dayz-validation.json у підпапці dayz. Префікс шляхів потрібно узгодити зі структурою власного аддона.
 
-Для NOHQ застосовуються штатні swizzle і DXT5 з TexConvert.cfg ImageToPAA. SMDI містить R=1, G як оцінку specular F0, B як нормований specular power, обчислений із roughness. AS містить AO в G. CO є sRGB, решта карт — дані Non-Color.
+Для NOHQ застосовуються штатні swizzle і DXT5 з TexConvert.cfg ImageToPAA. SMDI містить R=1, G як оцінку specular F0, B як нормований specular power, обчислений із roughness. AS містить AO в G. CO є sRGB, решта карт - дані Non-Color.
 
 Цей профіль не є просто перейменуванням карт PBR. Перетворення roughness і metallic у SMDI є наближенням, а єдиний Fresnel для різних матеріалів потребує налаштування у грі. Параметр NormalGreen дозволяє явний вибір орієнтації Y. У звіті готовність до DayZ залишається false до перевірки в цільовому шейдері.
 

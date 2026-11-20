@@ -910,7 +910,7 @@ def terminal(arguments):
             label = data['label']
             label = tr(*label) if isinstance(label, (tuple, list)) else label
             if label != last_progress:
-                print(f'→ {label}', flush=True)
+                print(label, flush=True)
                 last_progress = label
 
     root = None
@@ -941,7 +941,7 @@ def terminal(arguments):
             else:
                 print(result['folder'])
                 for converted in result['files']:
-                    print(f"{converted['source']} → {converted['output']}")
+                    print(tr('{source} збережено як {output}', '{source} saved as {output}').format(**converted))
                 for failure in result['errors']:
                     print(f"{failure['source']} · {failure['error']}", file=sys.stderr)
             if args.open:

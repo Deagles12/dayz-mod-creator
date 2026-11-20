@@ -18,7 +18,7 @@
       }
     }
 
-Base Color є обов’язковим, решта карт додаткові. Base Color читається як sRGB, карти даних — Non-Color. Normal використовує tangent-space OpenGL. Для DirectX normal спочатку інвертуй зелений канал. Roughness має бути roughness, а не glossiness.
+Base Color є обов’язковим, решта карт додаткові. Base Color читається як sRGB, карти даних - Non-Color. Normal використовує tangent-space OpenGL. Для DirectX normal спочатку інвертуй зелений канал. Roughness має бути roughness, а не glossiness.
 
 Вибирається перший material.json за алфавітом у категорії. Для іншого набору передай окремий корінь через параметр MaterialLibrary. Ліцензія й джерело записуються в validation.json.
 
