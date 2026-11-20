@@ -16,6 +16,7 @@ from console import ACTIONS, command as shell_command
 from test_workflow import MACHINE, TestPipeline
 
 from model_export import export_model, read_glb
+from p3d_preview import preview_p3d
 from texture_export import convert_textures
 from export_folders import can_reveal, install_directory, output_folder
 from locale_studio import set_language, tr
@@ -596,6 +597,8 @@ def dispatch(request, emit):
     if command == 'previewModel':
         _, data = read_glb(request['path'])
         return base64.b64encode(data).decode('ascii')
+    if command == 'previewP3d':
+        return preview_p3d(request['path'])
     if command == 'exportModel':
         return export_model(request, lambda stage: emit('progress', stage=stage))
     if command in ('revealModel', 'revealTextures'):
