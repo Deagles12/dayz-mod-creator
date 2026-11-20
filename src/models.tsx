@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { Box, FolderOpen, Upload } from 'lucide-react'
 import * as THREE from 'three'
@@ -212,7 +213,8 @@ export function Models({ language, root, settings, onStatus }: {
     try {
       const picked = path ?? await open({ filters: [{ name: 'P3D', extensions: ['p3d'] }], multiple: false })
       if (typeof picked !== 'string') return
-      const lods = await call<P3dLod[]>(language, 'previewP3d', { path: picked })
+      const lods = await invoke<P3dLod[] | null>('preview_odol', { path: picked })
+        ?? await call<P3dLod[]>(language, 'previewP3d', { path: picked })
       const visual = lods.reduce((best, candidate, index) => {
         const { resolution, triangles } = candidate
         return triangles && resolution >= 0 && resolution < (lods[best]?.resolution ?? 1000) ? index : best
@@ -222,7 +224,16 @@ export function Models({ language, root, settings, onStatus }: {
         lods.findIndex(candidate => candidate.vertices > 0)
       setP3d({ name: picked.split(/[\\/]/).pop() || picked, lods, selected })
     } catch (failure) {
-      setP3dError(failure instanceof Error ? failure.message : String(failure))
+      const reason = failure instanceof Error ? failure.message : String(failure)
+      const messages: Record<string, string> = {
+        invalid: tr('Файл ODOL пошкоджений або має непідтримувану структуру.', 'The ODOL file is damaged or uses an unsupported layout.'),
+        empty: tr('У файлі ODOL немає вершин для огляду.', 'The ODOL file contains no vertices to display.'),
+        read: tr('Не вдалося прочитати P3D.', 'Could not read the P3D file.'),
+        size: tr('Вибери P3D розміром до 64 МБ.', 'Choose a P3D file of up to 64 MB.'),
+      }
+      const version = /^version:(\d+)$/.exec(reason)
+      setP3dError(version ? tr(`ODOL v${version[1]} не підтримується. Підтримуються версії 53–56.`,
+        `ODOL v${version[1]} is unsupported. Supported versions are 53–56.`) : messages[reason] ?? reason)
     } finally {
       setP3dBusy(false)
     }

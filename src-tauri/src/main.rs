@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod odol;
+
 #[cfg(windows)]
 #[link(name = "kernel32")]
 extern "system" {
@@ -39,6 +41,7 @@ fn main() {
         }
     }
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![odol::preview_odol])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .run(tauri::generate_context!())
