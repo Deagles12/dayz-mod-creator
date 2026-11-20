@@ -508,7 +508,7 @@ function App() {
   const projectPaths = [...new Set(workspace ? [workspace, ...prefs.projects] : prefs.projects)]
   return <div className={toolPage ? 'app app-tool' : 'app'}>
     <header className="titlebar" data-tauri-drag-region>
-      <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.2</small></span>
+      <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.3</small></span>
       <div className="segments" aria-label={tr('Мова','Language')}>
         <button disabled={projectLoading} aria-pressed={lng==='uk'} onClick={()=>void changePrefs({language:'uk'})}>UA</button>
         <button disabled={projectLoading} aria-pressed={lng==='en'} onClick={()=>void changePrefs({language:'en'})}>EN</button>

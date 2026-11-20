@@ -608,6 +608,8 @@ def dispatch(request, emit):
         os.startfile(path)
         return None
     if command == 'hello':
+        from archive_workspace import ensure_workspace
+        ensure_workspace(install_directory())
         workspace = install_directory() / 'projekt'
         workspace.mkdir(exist_ok=True)
         recent = optional(recent_file(), {}).get('project')

@@ -36,6 +36,8 @@ def blender_path():
     candidates = [
         os.environ.get('DAYZ_BLENDER'),
         shutil.which('blender'),
+        *(str(path) for drive in ('C:/', 'D:/', 'E:/', 'F:/')
+          for path in sorted(Path(drive).glob('blender-*/blender.exe'), reverse=True)),
         *(str(root / 'Blender/blender.exe') for root in steam_installs()),
         *(str(path) for path in sorted(Path(os.environ.get('ProgramFiles', 'C:/Program Files'))
           .glob('Blender Foundation/Blender */blender.exe'), reverse=True)),
