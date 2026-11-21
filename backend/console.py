@@ -4,8 +4,10 @@ from pathlib import Path
 
 
 ACTIONS = {
-    'update': ('Оновити локально й, за налаштуванням, у Workshop (F5)',
-               'Update locally and optionally publish to Workshop (F5)'),
+    'quick': ('Зібрати, підписати й встановити локально (F5)',
+              'Build, sign and deploy locally (F5)'),
+    'update': ('Зібрати, запустити локальний тест і, за налаштуванням, опублікувати у Workshop',
+               'Build, start a local test and optionally publish to Workshop'),
     'remote': ('Встановити вибрану перевірену збірку (F6)',
                'Deploy the selected verified build (F6)'),
     'status': ('Показати готовність, вибраний пакет і останній результат',

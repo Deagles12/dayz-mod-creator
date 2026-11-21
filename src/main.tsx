@@ -1,6 +1,6 @@
-import { Activity, ArrowUpRight, Box, ChevronRight, CircleHelp, ClipboardList, CloudUpload, FolderOpen, Folders, Gauge, Image, ListFilter, Minus, Monitor, Play, Plus, RefreshCw, Server, Settings2, Square, Terminal, Trash2, X } from 'lucide-react'
+import { Box, ClipboardList, CloudUpload, FolderOpen, Folders, Gauge, Image, ListFilter, Minus, Play, Plus, Server, Settings2, Square, Terminal, Trash2, X } from 'lucide-react'
 import { LogDrawer, Menu, Status } from './ui'
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -13,7 +13,21 @@ const Models = lazy(() => import('./models').then(module => ({ default: module.M
 const Textures = lazy(() => import('./textures').then(module => ({ default: module.Textures })))
 
 type Prefs = { language: Lang; theme: 'dark' | 'light'; projects: string[] }
-type Action = 'deploy' | 'launch' | 'retry' | 'build' | 'test' | 'rollback' | 'publish' | 'retry-publish' | 'remote' | 'remote-check' | 'create-workshop'
+type Action = 'quick' | 'deploy' | 'launch' | 'retry' | 'build' | 'test' | 'rollback' | 'publish' | 'retry-publish' | 'remote' | 'remote-check' | 'create-workshop'
+const quickToggles = ['copy_server', 'copy_client', 'sign']
+type Addon = {path: string; name: string; prefix: string; declared: string}
+type AddonOptions = Record<string, {name?: string; prefix?: string}>
+const addonFolders = (settings: Settings) => String(settings.addons || '').split(/\r?\n/).map(folder => folder.trim()).filter(Boolean)
+function getAddonOptions(settings: Settings): AddonOptions {
+  try { return JSON.parse(String(settings.addon_options || '{}')) || {} }
+  catch { return {} }
+}
+fields.addon_builder = ['Файл AddonBuilder.exe', 'AddonBuilder.exe path', 'file']
+hints.addon_builder = ['Типово використовується Bin/AddonBuilder/AddonBuilder.exe з папки DayZ Tools.',
+  'Defaults to Bin/AddonBuilder/AddonBuilder.exe within DayZ Tools.']
+fields.copy_server = ['Копіювати на сервер', 'Copy to server', 'bool']
+fields.copy_client = ['Копіювати на клієнт', 'Copy to client', 'bool']
+fields.sign = ['Підписувати PBO', 'Sign PBO files', 'bool']
 fields.client_mods_root = ['Локальна папка тестових модів', 'Local test mod folder', 'folder']
 fields.open_dayz = ['Відкрити DayZ після оновлення', 'Open DayZ after updating', 'bool']
 fields.publish_workshop = ['Публікувати у Workshop', 'Publish to Workshop', 'bool']
@@ -40,7 +54,7 @@ hints.client_mods_root = ['Вибери папку поза каталогом �
 hints.base = ['Одна папка або Workshop ID на рядок. Сервер і клієнт завантажують ту саму локальну версію.',
   'One directory or Workshop ID per line. The server and client load the same local version.']
 const groups = [
-  { title: ['Джерело й інструменти', 'Source and tools'], basic: ['addons','mod'], advanced: ['pack','addon_name','prefix','metadata','extra','prep_exe','prep_args'] },
+  { title: ['Джерело й інструменти', 'Source and tools'], basic: ['addons','mod'], advanced: ['pack','addon_builder','addon_name','prefix','metadata','extra','prep_exe','prep_args'] },
   { title: ['Тестове середовище', 'Test environment'], basic: ['tools','server','client','config','base','open_dayz'], advanced: ['profiles','client_profiles','port','server_only','server_exe','client_exe','address','timeout','shared','server_args','client_args','client_mods_root','environment_override'] },
   { title: ['Підпис', 'Signing'], basic: ['sign','private','public'], advanced: [] },
   { title: ['Steam Workshop', 'Steam Workshop'], basic: ['publish_workshop','workshop','steam_owner','notes'], advanced: [] },
@@ -90,6 +104,8 @@ function App() {
   const [project, setProject] = useState<Project>()
   const [settings, setSettings] = useState<Settings>({})
   const [operationBusy, setBusy] = useState(false)
+  const running = useRef(false)
+  const [addons, setAddons] = useState<Addon[]>([])
   const [projectLoading, setProjectLoading] = useState(true)
   const [workspace, setWorkspace] = useState<string>()
   const busy = operationBusy || projectLoading
@@ -103,7 +119,6 @@ function App() {
   const [settingsGroup,setSettingsGroup] = useState(1)
   const [live,setLive] = useState<'ready'|'offline'|'unknown'>('unknown')
   const [showLog, setShowLog] = useState(false)
-  const [hasEnvironment, setHasEnvironment] = useState(false)
   const [selectedReport, setSelectedReport] = useState<Operation>()
   const [notice, setNotice] = useState('')
   const [terminalAction, setTerminalAction] = useState('status')
@@ -117,7 +132,7 @@ function App() {
     setNotice(String(error instanceof Error ? error.message : error))
   }
 
-  async function loadProject(root: string, preference = prefs, setup = true, environment = hasEnvironment, activate = true) {
+  async function loadProject(root: string, preference = prefs, activate = true) {
     const found = await call<Project>(preference.language, 'open', {root})
     setProject(found)
     setSettings(found.settings)
@@ -131,28 +146,28 @@ function App() {
       setEntries(text.split(/\r?\n/).filter(Boolean).map(text=>({text,error:isError(text)})))
     }
     if (activate) setPage('overview')
-    setWizard(setup && !found.configured && !environment ? 0 : undefined)
+    setWizard(found.configured ? undefined : 0)
+    setKeyName(String(found.settings.mod || '').replace(/^@/, '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 48))
     const next = {...preference, projects: [found.root, ...preference.projects.filter(path => path !== found.root)].slice(0, 30)}
     setPrefs(next)
     await call(next.language, 'preferences', {value: next})
   }
   useEffect(() => {
-    call<{hasEnvironment: boolean; interface: Partial<Prefs>; workspace: string; recent: string | null}>('uk', 'hello').then(async data => {
+    call<{interface: Partial<Prefs>; workspace: string; recent: string | null}>('uk', 'hello').then(async data => {
       const next = {...defaultPrefs, ...data.interface}
       setPrefs(next)
-      setHasEnvironment(data.hasEnvironment)
       setWorkspace(data.workspace)
       if (data.recent && data.recent !== data.workspace) {
         try {
-          await loadProject(data.recent, next, false, data.hasEnvironment, false)
+          await loadProject(data.recent, next, false)
           return
         } catch (error) {
-          await loadProject(data.workspace, next, false, data.hasEnvironment, false)
+          await loadProject(data.workspace, next, false)
           flagError(error)
           return
         }
       }
-      await loadProject(data.workspace, next, false, data.hasEnvironment, false)
+      await loadProject(data.workspace, next, false)
     }).catch(flagError).finally(() => setProjectLoading(false))
   }, [])
   useEffect(() => {
@@ -196,15 +211,17 @@ function App() {
     const details = await call<Details>(language, 'details', {root: project.root, settings: next})
     setProject(previous => previous?.root === project.root ? {...previous, details} : previous)
   }
-  async function saveSettings() {
-    if (!project) return
+  async function saveSettings(setup = false) {
+    if (!project || busy) return
+    setBusy(true)
     try {
-      const details = await call<Details>(lng, 'save', {root: project.root, settings})
+      const details = await call<Details>(lng, setup ? 'saveQuick' : 'save', {root: project.root, settings})
       setProject({...project, configured: true, settings, details})
-      setHasEnvironment(true)
       setNotice(tr('Налаштування збережено.', 'Settings saved.'))
       setWizard(undefined)
+      if (setup) setPage('overview')
     } catch (error) { flagError(error) }
+    finally { setBusy(false) }
   }
   async function copyCommand(action: string) {
     if (!project || busy) return
@@ -216,7 +233,6 @@ function App() {
       if (settingsDirty || !project.configured) {
         const details = await call<Details>(lng, 'save', {root: project.root, settings})
         setProject({...project, configured: true, settings, details})
-        setHasEnvironment(true)
         command = details.commands[action]
         if (action === 'remote' && command !== shown) {
           setNotice(tr('Налаштування збережено. Звір вибрану збірку F6 і скопіюй оновлену команду.',
@@ -230,13 +246,15 @@ function App() {
     finally { setBusy(false) }
   }
   async function detect() {
+    if (busy) return
+    setBusy(true)
     try {
       const paths = await call<Settings>(lng, 'detect', {settings})
       const next = {...settings, ...paths}
       setSettings(next)
-      await refresh(lng, next)
       setNotice(tr('Інсталяцій знайдено: ', 'Installations found: ') + Object.keys(paths).length)
     } catch (error) { flagError(error) }
+    finally { setBusy(false) }
   }
   async function steamOwner() {
     if (!project || busy) return
@@ -276,19 +294,26 @@ function App() {
     finally { setBusy(false) }
   }
   async function start(action: Action) {
-    if (!project || busy) return
-    const buildId = action === 'remote' ? project.details.remoteChoice.buildId : undefined
-    if (action === 'remote' && (!settings.remote_host || !buildId)) return
-    if (action === 'test' && ((!project.configured && !hasEnvironment) || project.details.checks.some(check=>!check.ok))) {
+    if (!project || busy || running.current) return
+    if (action === 'quick' && !project.configured) {
       setWizard(0)
       return
     }
+    const buildId = action === 'remote' ? project.details.remoteChoice.buildId : undefined
+    if (action === 'remote' && (!settings.remote_host || !buildId)) return
+    if (action === 'test' && !ready) {
+      setPage('server')
+      setNotice(tr('Перевір налаштування тестового середовища.', 'Check the test environment settings.'))
+      return
+    }
+    running.current = true
     setBusy(true)
     setConfirmation(undefined)
     setEntries([])
     setNotice('')
     setSelectedReport(undefined)
     setRun({action, stage: 0})
+    if (action === 'quick') setPage('overview')
     try {
       const details = await call<RunResult>(lng, 'run', {root: project.root, settings, action, buildId}, message => {
         if (message.event === 'log' && message.text) {
@@ -300,22 +325,24 @@ function App() {
       const saved = {...settings, workshop: details.workshopItem}
       setProject({...project, configured: true, settings: saved, details})
       setSettings(saved)
-      setHasEnvironment(true)
       setSelectedReport(details.currentOperation)
       setRun(previous => previous && {...previous, done: details.currentOperation.status === 'complete'})
-      setPage('overview')
+      if (action === 'remote') setPage('server')
     } catch (error) {
       flagError(error)
       setEntries(previous => [...previous, {text: error instanceof Error ? error.message : String(error), error: true}])
       setRun(previous => previous && {...previous, done: false})
       await refresh().catch(() => undefined)
-    } finally { setBusy(false) }
+    } finally {
+      running.current = false
+      setBusy(false)
+    }
   }
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === 'F5' || event.key === 'F6') {
         event.preventDefault()
-        if (!event.repeat && wizard === undefined && !confirmation) void start(event.key === 'F5' ? 'test' : 'remote')
+        if (!event.repeat && wizard === undefined && !confirmation) void start(event.key === 'F5' ? 'quick' : 'remote')
       }
     }
     window.addEventListener('keydown', keyboard)
@@ -355,7 +382,7 @@ function App() {
 
   useEffect(()=>{
     setLive('unknown')
-    if(!project || busy || (page!=='overview' && page!=='server'))return
+    if(!project || busy || page!=='server')return
     let cancelled=false
     const peek=()=>void call<'ready'|'offline'|'unknown'>(lng,'serverStatus',{root:project.root,settings})
       .then(value=>{if(!cancelled)setLive(value)}).catch(()=>{if(!cancelled)setLive('unknown')})
@@ -401,6 +428,66 @@ function App() {
     </div>
   }
 
+  useEffect(() => {
+    if (!project) return
+    let active = true
+    void call<Addon[]>(lng, 'addonInfo', {root: project.root, settings: {
+      addons: settings.addons, addon_name: settings.addon_name, prefix: settings.prefix
+    }}).then(value => { if (active) setAddons(value) }).catch(() => { if (active) setAddons([]) })
+    return () => { active = false }
+  }, [project?.root, settings.addons, settings.addon_name, settings.prefix, lng])
+
+  async function scanAddons() {
+    if (!project || busy) return
+    setBusy(true)
+    try {
+      const found = await call<Addon[]>(lng, 'scanAddons', {root: project.root, settings})
+      setSettings(previous => ({...previous, addons: found.map(item => item.path).join('\n')}))
+      setNotice(found.length ? '' : tr('У цій папці не знайдено аддонів із config.cpp.',
+                                       'No addons with config.cpp were found in this folder.'))
+    } catch (error) { flagError(error) }
+    finally { setBusy(false) }
+  }
+
+  function addonEditor() {
+    const options = getAddonOptions(settings)
+    const folders = addonFolders(settings)
+    return <>
+      {form(['addons', 'mod'])}
+      <button type="button" onClick={() => void scanAddons()}>{tr('Знайти аддони', 'Detect addons')}</button>
+      <div className="addon-list">
+        {folders.map((folder, index) => {
+          const info = addons.find(addon => addon.path === folder)
+          const key = folder.replace(/\\/g, '/')
+          const update = (field: 'name' | 'prefix', value: string) => setSettings(previous => {
+            const existing = getAddonOptions(previous)
+            return {...previous, addon_options: JSON.stringify({...existing, [key]: {...existing[key], [field]: value}})}
+          })
+          const inferredPrefix = options[key]?.name && info && !info.declared && info.prefix === info.name && !(folders.length === 1 && settings.prefix)
+            ? options[key].name : info?.prefix
+          return <div className="addon-row" key={folder + index}>
+            <strong title={folder}>{folder}</strong>
+            <label>{tr('Назва PBO', 'PBO name')}<input value={options[key]?.name ?? ''} placeholder={info?.name}
+              onChange={event => update('name', event.target.value)}/></label>
+            <label>{tr('Префікс', 'Prefix')}<input value={options[key]?.prefix ?? ''} placeholder={inferredPrefix}
+              onChange={event => update('prefix', event.target.value)}/></label>
+          </div>
+        })}
+      </div>
+    </>
+  }
+
+  async function toggleQuick(key: string, checked: boolean) {
+    if (!project || busy) return
+    const next = {...settings, [key]: checked}
+    setSettings(next)
+    if (!project.configured) return
+    try {
+      await call(lng, 'saveQuickToggles', {root: project.root, [key]: checked})
+      setProject(previous => previous?.root === project.root ? {...previous, settings: {...previous.settings, [key]: checked}} : previous)
+    } catch (error) { flagError(error) }
+  }
+
   function form(keys: readonly string[]) {
     return <div className="form-grid">{keys.filter(key=>key!=='server_only').map(key => {
       if(key==='base')return <div key={key} className="wide">{dependencies()}</div>
@@ -431,7 +518,7 @@ function App() {
   }
 
   const operationNames: Record<string, [string,string]> = {
-    deploy:['Встановлення','Deployment'], launch:['Запуск тесту','Launch test'], test:['Тестування','Test'], retry:['Продовження тесту','Resume test'], build:['Збірка','Build'],
+    quick:['Швидка збірка','Quick build'], deploy:['Встановлення','Deployment'], launch:['Запуск тесту','Launch test'], test:['Тестування','Test'], retry:['Продовження тесту','Resume test'], build:['Збірка','Build'],
     rollback:['Відкат','Rollback'], publish:['Оновлення Workshop','Workshop update'],
     'retry-publish':['Повторна публікація','Retry publication'],
     remote:['Віддалене встановлення','Remote deployment'], 'remote-check':['Перевірка SSH/SFTP','SSH/SFTP check'],
@@ -485,28 +572,23 @@ function App() {
   const stageText = !run ? tr('Готово', 'Ready') : run.done === false ? tr('Операція завершилася помилкою', 'Operation failed') :
     run.done ? tr('Операцію завершено', 'Operation complete') : Array.isArray(run.label) ? local(run.label) :
     run.label || tr('Перевірка середовища…', 'Checking environment…')
-  const setupGroup = wizard === undefined ? undefined : groups[wizard]
-  const ready = !!project && (project.configured || hasEnvironment) && project.details.checks.length>0 && project.details.checks.every(check=>check.ok)
-  const lastTest = project?.details.operations.find(item=>['test','retry','launch'].includes(item.action))
+  const setupSteps = [
+    tr('Вихідні файли та аддони', 'Source files and addons'),
+    tr('DayZ Tools і папки встановлення', 'DayZ Tools and installation folders'),
+    tr('Цифровий підпис', 'Digital signing')
+  ]
+  const ready = !!project && project.configured && project.details.checks.length>0 && project.details.checks.every(check=>check.ok)
   const navIcons = [Gauge,Folders,Box,Server,CloudUpload,Settings2,Image]
   const serverState = live==='ready' ? tr('Порт активний','Listening') : live==='offline' ? tr('Не запущено','Stopped') : tr('Немає підтвердження','Unverified')
-  const clientState = lastTest?.connected ? tr('Вхід підтверджено в останньому тесті','Connected in last test') :
-    lastTest?.clientLaunched ? tr('Вхід не підтверджено','Connection unverified') : tr('Ще не перевірено','Not tested')
-  const hasSetup = project?.configured || hasEnvironment
   const lastBuild=project?.details.operations.find(item=>['test','retry','build','deploy','launch'].includes(item.action))
+  const lastQuick=project?.details.operations.find(item=>item.action==='quick')
   const latestPackage=project?.details.builds[0]
-  function workflowRow(title:string, description:string, state:string, action?:ReactNode) {
-    const labels: Record<string,[string,string]> = {pending:['Очікує','Pending'],running:['Виконується','Running'],
-      ready:['Готово','Ready'],known:['Останній відомий','Last known'],confirmed:['Підтверджено Steam','Confirmed by Steam'],skipped:['Пропущено','Skipped'],error:['Помилка','Error'],attention:['Потребує уваги','Needs attention']}
-    return <div className="workflow-row" key={title}><div><strong>{title}</strong><small>{description}</small></div>
-      <Status tone={state==='ready'?'good':state==='running'?'active':state==='error'||state==='attention'?'warn':'neutral'}>{local(labels[state])}</Status>
-      <div>{action}</div></div>
-  }
-  const startButton = <button className="primary" disabled={busy || !project} onClick={()=>void start('test')}>
-    <Play size={15}/>{!hasSetup || !ready ? tr('Налаштувати тест','Set up test') : settings.publish_workshop
-      ? tr('Оновити локально + Workshop','Update locally + Workshop') : tr('Оновити локально','Update locally')}<kbd>F5</kbd></button>
+  const quickActive = operationBusy && run?.action === 'quick'
+  const quickPbos = lastQuick?.files.filter(name => name.toLowerCase().endsWith('.pbo')) ?? []
+  const startButton = <button className="primary" disabled={busy || !project} onClick={()=>void start('quick')}>
+    <Play size={15}/>{tr('Зібрати та встановити','Build and deploy')} <kbd>F5</kbd></button>
   const projectPaths = [...new Set(workspace ? [workspace, ...prefs.projects] : prefs.projects)]
-  return <div className={toolPage ? 'app app-tool' : 'app'}>
+  return <div className={toolPage ? 'app app-tool' : page === 'overview' ? 'app app-quick' : 'app'}>
     <header className="titlebar" data-tauri-drag-region>
       <span className="brand" data-tauri-drag-region><Box size={15}/> DayZ Mod Studio <small>2.3</small></span>
       <div className="segments" aria-label={tr('Мова','Language')}>
@@ -519,7 +601,7 @@ function App() {
         <button aria-label={tr('Закрити','Close')} disabled={busy} onClick={()=>void desktop.close()}><X size={16}/></button>
       </div>
     </header>
-    {!toolPage && <div className="toolbar">
+    {!toolPage && page!=='overview' && <div className="toolbar">
       <Menu className="project-switch" disabled={busy} label={<><FolderOpen size={16}/><span className="project-caption" title={project?.root}><strong>{project?nameOf(project.root):tr('Вибрати проєкт','Choose a project')}</strong></span></>}>
         {close=><>{projectPaths.map(path=><button key={path} title={path} onClick={()=>{close();void chooseProject(path)}}><Folders size={15}/><span>{nameOf(path)}</span>{path===project?.root&&<span className="muted"> •</span>}</button>)}
           <button onClick={()=>{close();void chooseProject()}}><Plus size={15}/>{tr('Відкрити папку…','Open folder…')}</button></>}
@@ -535,7 +617,7 @@ function App() {
       })}</nav>
       <main className={page==='build'&&project?'build-main':undefined}>
         {!(page==='build'&&project)&&<h1>{tr(title[1],title[2])}</h1>}
-        {!toolPage && notice && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
+        {!toolPage && wizard === undefined && notice && !(page === 'overview' && run?.action === 'quick' && run.done === false) && <div role="status" className="notice"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label={tr('Закрити повідомлення','Dismiss message')}>×</button></div>}
         {page==='projects' && <div className="grid gap-2">{projectPaths.map(path=><button className="project-card" key={path} disabled={busy} onClick={()=>void chooseProject(path)}><strong>{nameOf(path)}</strong><small>{path}</small></button>)}
           <button className="justify-self-start" disabled={busy} onClick={()=>void chooseProject()}><Plus size={15}/>{tr('Додати проєкт','Add project')}</button></div>}
         {!project && !['projects','settings','media'].includes(page) &&
@@ -561,93 +643,68 @@ function App() {
             <Textures language={lng} settings={settings} onStatus={setTextureStatus}/>
           </Suspense>
         </div>}
-        {project && page==='overview' && <>
+        {project && page==='overview' && <section className="quick-build">
           <div className="overview-head">
             <div className="min-w-0"><h2>{nameOf(project.root)}</h2><small className="path" title={project.root}>{project.root}</small></div>
-            <div className="flex flex-wrap gap-2">
-              {startButton}
-              <button disabled={busy || !settings.remote_host || !project.details.remoteChoice.buildId} onClick={()=>void start('remote')}>
-                <Server size={15}/>{settings.remote_files_only ? tr('Завантажити пакет через SFTP','Upload package via SFTP') : tr('Оновити віддалений сервер','Update remote server')}<kbd>F6</kbd>
-              </button>
-            </div>
+            <button disabled={busy} onClick={()=>setPage('projects')}><FolderOpen size={15}/>{tr('Вибрати або створити проєкт','Choose or create project')}</button>
           </div>
-          <div className="workflow-next">
-            <strong>{tr('Далі','Next')}</strong>
-            <span>{busy?stageText:!ready?tr('Перевір середовище й виправ позначені налаштування.','Review the environment and fix the flagged settings.'):
-              project.details.operations[0]?.status==='failed'
-                ? project.details.retry?tr('Переглянь причину й продовж з перевіреного пакета.','Review the cause and resume from the verified package.'):tr('Переглянь причину помилки та повтори дію.','Review the error and retry.')
-                : project.details.operations[0]?.connected?tr('Перевір зміни у грі. Після редагування знову натисни F5.','Check your changes in game. Press F5 again after editing.')
-                : project.details.deployment?tr('Запусти тест із уже встановленої збірки або натисни F5 для нового циклу.','Launch the deployed build or press F5 for a new cycle.')
-                : tr('F5 збере мод, оновить локальні копії та перевірить запуск сервера.','F5 builds the mod, updates its local copies and checks that the server starts.')}</span>
+          <div className="quick-controls">
+            {startButton}
+            <fieldset className="quick-options" disabled={busy}>{quickToggles.map(key =>
+              <label key={key}><input type="checkbox" checked={Boolean(settings[key])} onChange={event=>void toggleQuick(key, event.target.checked)}/>
+                {tr(fields[key][0], fields[key][1])}</label>)}</fieldset>
           </div>
-          <div className="build-stages">
-            {workflowRow(tr('Вихідні файли','Sources'), project.details.sourcesChanged === true
-              ? tr('Є нові зміни','Changes since the last local build') : project.details.sourcesChanged === false
-              ? tr('Відповідають локальній збірці','Match the last local build') : tr('Відбиток ще не звірено','Fingerprint unavailable'),
-              project.details.sourcesChanged === false ? 'ready' : 'pending')}
-            {workflowRow(tr('Локальний сервер','Local server'),
-              project.details.localBuild.buildId ? [tr('Остання відома збірка','Last known build'), project.details.localBuild.buildId, project.details.localBuild.date && new Date(project.details.localBuild.date).toLocaleString()].filter(Boolean).join(' · ') : '-',
-              project.details.localBuild.buildId ? 'known' : 'pending')}
-            {workflowRow('Workshop',
-              [project.details.published.buildId, project.details.published.date && new Date(project.details.published.date).toLocaleString(), project.details.published.changed && tr('Є нові зміни','Newer source changes')].filter(Boolean).join(' · ') || '-',
-              project.details.published.buildId ? 'confirmed' : 'pending',
-              project.details.publication.status === 'failed' ? <button disabled={busy} onClick={()=>void start('retry-publish')}>{tr('Повторити публікацію','Retry publication')} · {project.details.publication.buildId}</button>
-                : ['pending','uncertain'].includes(project.details.publication.status || '') ? <span>{tr('Перевір результат у Steam','Check the result in Steam')} · {project.details.publication.buildId}</span> : undefined)}
-            {workflowRow(tr('Віддалений сервер','Remote server'),
-              project.details.remoteBuild.buildId ? [project.details.remoteBuild.buildId, project.details.remoteBuild.date && new Date(project.details.remoteBuild.date).toLocaleString(), project.details.remoteBuild.changed && tr('Є нові зміни','Newer source changes')].filter(Boolean).join(' · ') : '-',
-              project.details.remoteBuild.buildId ? 'known' : 'pending',
-              project.details.remoteChoice.buildId ? <span>F6 · {project.details.remoteChoice.buildId}
-                {project.details.remoteChoice.changed && <small>{tr('Для нових змін натисни F5','Use F5 to include newer changes')}</small>}</span>
-                : <button disabled={busy} onClick={()=>{setSettingsGroup(5);setPage('settings')}}>{tr('Налаштування','Settings')}</button>)}
+          <div className="quick-result" aria-live="polite">
+            {quickActive ? <>
+              <strong>{stageText}</strong>
+              <progress aria-label={tr('Прогрес швидкої збірки','Quick build progress')} max={settings.copy_client ? 4 : settings.copy_server ? 3 : settings.sign ? 2 : 1} value={run?.stage ?? 0}/>
+            </> : run?.action === 'quick' && run.done === false && notice ? <>
+              <Status tone="warn">{tr('Помилка','Error')}</Status><p>{notice}</p>
+              <button disabled={busy} onClick={()=>setWizard(0)}>{tr('Виправити налаштування','Fix setup')}</button>
+            </> : lastQuick ? <>
+              <Status tone={lastQuick.status === 'complete' ? 'good' : 'warn'}>{lastQuick.status === 'complete' ? tr('Успішно','Successful') : tr('Помилка','Error')}</Status>
+              {lastQuick.error && <p className="bad">{lastQuick.error}</p>}
+              {!!quickPbos.length && <p>{quickPbos.map(name => name.split('/').pop()).join(', ')}</p>}
+              {!!lastQuick.updated.length && <ul>{lastQuick.updated.map(path => <li key={path}>{path}</li>)}</ul>}
+              {lastQuick.status === 'failed' && <button disabled={busy} onClick={()=>{setNotice(lastQuick.error || '');setWizard(0)}}>{tr('Виправити налаштування','Fix setup')}</button>}
+            </> : <small>{tr('Збірку ще не запускали','No build yet')}</small>}
           </div>
-          <details className="overview-actions"><summary>{tr('Додаткові дії','Additional actions')}</summary>
-            <div className="flex flex-wrap gap-2">
-              <button disabled={busy} onClick={()=>void start('build')}>{tr('Лише зібрати','Build only')}</button>
-              <button disabled={busy||!ready||!project.details.packageReady} onClick={()=>void start('deploy')}>{tr('Лише встановити','Install only')}</button>
-              <button disabled={busy||!ready||!project.details.deployment} onClick={()=>void start('launch')}>{tr('Лише запустити','Launch only')}</button>
-              <button disabled={busy||!project.details.localBuild.buildId||project.details.sourcesChanged!==false||!settings.workshop} onClick={()=>setConfirmation('publish')}>{tr('Опублікувати вручну','Publish manually')} · {project.details.localBuild.buildId || '-'}</button>
-              <button disabled={busy||!project.details.rollback} onClick={()=>setConfirmation('rollback')}>{tr('Відкотити','Roll back')}</button>
-            </div>
+          {entries.length > 0 && <div className="quick-log">
+            <code title={entries[entries.length - 1]?.text}>{entries[entries.length - 1]?.text}</code>
+            <button className="subtle" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Журнал','Log')}</button>
+          </div>}
+        </section>}
+        {project && page==='build' && <>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={busy} onClick={()=>void start('build')}>{tr('Лише зібрати пакет','Build package only')}</button>
+            <button disabled={busy} onClick={()=>setWizard(0)}>{tr('Майстер налаштування','Setup wizard')}</button>
+          </div>
+          <details><summary><ClipboardList size={15}/>{tr('Останні операції','Recent operations')}</summary>
+            {project.details.operations.map(item=><button className="project-card" key={item.date} onClick={()=>setSelectedReport(item)}>
+              {new Date(item.date).toLocaleString(lng==='uk'?'uk-UA':'en-US')} · {local(operationNames[item.action])} · {item.status==='complete'?tr('Завершено','Complete'):tr('Помилка','Failed')}
+            </button>)}
           </details>
+          {!busy && selectedReport && operation(selectedReport)}
           <details className="terminal-commands">
             <summary><Terminal size={15}/>{tr('Команди PowerShell','PowerShell commands')}</summary>
             {(settingsDirty || !project.configured) &&
               <small>{tr('Під час копіювання налаштування буде збережено для термінала.',
                 'Copying saves the current settings for the terminal.')}</small>}
-            <label>F5 · {tr('Оновити локально','Update locally')}{settings.publish_workshop && ' + Workshop'}</label>
-            {commandLine('update')}
+            <label>F5 · {tr('Зібрати та встановити','Build and deploy')}</label>
+            {commandLine('quick')}
             <label>F6 · {tr('Розгорнути вибрану збірку','Deploy selected build')}</label>
             {project.details.commands.remote ? commandLine('remote') :
-              <small>{tr('Команда з’явиться після перевірки першої збірки через F5.',
-                'The command appears after F5 verifies the first build.')}</small>}
+              <small>{tr('Команда з’явиться після підготовки збірки для вибраного джерела.',
+                'The command appears when a build is ready for the selected source.')}</small>}
             <label>
               {tr('Інша дія','Other action')}
               <select value={terminalAction} onChange={event=>setTerminalAction(event.target.value)}>
-                {Object.keys(project.details.commands).filter(action=>action!=='update'&&action!=='remote').map(action=>
+                {Object.keys(project.details.commands).filter(action=>action!=='quick'&&action!=='remote').map(action=>
                   <option key={action} value={action}>{action}</option>)}
               </select>
             </label>
             {commandLine(terminalAction)}
           </details>
-          <div className="overview-grid">
-            <section><div className="section-header"><h2><Activity size={16}/>{tr('Готовність середовища','Environment readiness')}</h2>
-              <button className="icon-button" aria-label={tr('Перевірити','Refresh')} title={tr('Перевірити','Refresh')} disabled={busy} onClick={()=>void refresh().catch(flagError)}><RefreshCw size={15}/></button></div>{readiness()}</section>
-            <section><div className="section-header"><h2><Gauge size={16}/>{tr('Локальне тестування','Local testing')}</h2></div>
-              <div className="data-row"><Server size={15}/><div className="grow"><strong>{tr('Сервер','Server')}</strong><small>{serverState}</small></div><i className={'dot '+(live==='ready'?'online':'')}/></div>
-              <div className="data-row"><Monitor size={15}/><div className="grow"><strong>{tr('Клієнт','Client')}</strong><small>{clientState}</small></div></div>
-              <div className="data-row"><Box size={15}/><div className="grow"><strong>{tr('Остання збірка','Latest build')}</strong><small>{project.details.builds[0]?.name||tr('Ще немає','None yet')}</small></div>
-                <button className="icon-button" aria-label={tr('Збірки','Builds')} onClick={()=>setPage('build')}><ChevronRight size={16}/></button></div>
-            </section>
-          </div>
-          {!busy && (selectedReport ? operation(selectedReport) : project.details.operations[0] && operation(project.details.operations[0]))}
-          <div className="section-header mt-3"><button className="subtle" disabled={busy} onClick={()=>setWizard(0)}><CircleHelp size={15}/>{tr('Майстер налаштування','Setup wizard')}</button>
-            <button className="subtle" onClick={()=>{setSettingsGroup(2);setPage('settings')}}>{tr('Залежності','Dependencies')}<ArrowUpRight size={14}/></button></div>
-          {!!project.details.operations.length && <details><summary><ClipboardList size={15}/>{tr('Останні операції','Recent operations')}</summary>
-            {project.details.operations.map(item=><button className="project-card" key={item.date} onClick={()=>setSelectedReport(item)}>
-              {new Date(item.date).toLocaleString(lng==='uk'?'uk-UA':'en-US')} · {local(operationNames[item.action])} · {item.status==='complete'?tr('Завершено','Complete'):tr('Помилка','Failed')}
-            </button>)}</details>}
-        </>}
-        {project && page==='build' && <>
           <div className="build-heading">
             <div className="min-w-0">
               <h1>{tr('Конвеєр збірки','Build pipeline')}: {nameOf(project.root)}</h1>
@@ -694,6 +751,29 @@ function App() {
           </details>
         </>}
         {project && page==='server' && <>
+          {!busy && selectedReport && operation(selectedReport)}
+          <section>
+            <h2>{tr('Локальне тестування','Local testing')}</h2>
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy} onClick={()=>void start('test')}>{tr('Зібрати та протестувати','Build and test')}</button>
+              <button disabled={busy||!ready||!project.details.packageReady} onClick={()=>void start('deploy')}>{tr('Лише встановити тестовий пакет','Install test package only')}</button>
+              <button disabled={busy||!ready||!project.details.deployment} onClick={()=>void start('launch')}>{tr('Запустити встановлений тестовий пакет','Launch installed test package')}</button>
+              <button disabled={busy||!project.details.retry} onClick={()=>void start('retry')}>{tr('Продовжити тест','Resume test')}</button>
+            </div>
+            {readiness()}
+            <button className="subtle" onClick={()=>{setSettingsGroup(1);setPage('settings')}}>{tr('Налаштування тесту','Test settings')}</button>
+          </section>
+          <section>
+            <h2>{tr('Віддалений сервер','Remote server')}</h2>
+            {project.details.remoteChoice.buildId && <p>{project.details.remoteChoice.buildId}</p>}
+            {project.details.remoteChoice.changed && <small>{tr('Є нові зміни у вихідних файлах','Newer source changes are available')}</small>}
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy || !settings.remote_host || !project.details.remoteChoice.buildId} onClick={()=>void start('remote')}>
+                {settings.remote_files_only ? tr('Завантажити через SFTP','Upload over SFTP') : tr('Розгорнути через SSH','Deploy over SSH')} <kbd>F6</kbd>
+              </button>
+              <button onClick={()=>{setSettingsGroup(5);setPage('settings')}}>{tr('Налаштування SSH/SFTP','SSH/SFTP settings')}</button>
+            </div>
+          </section>
           <section><h2>{tr('Зупинка тестової сесії','Stop the test session')}</h2>
             <div className="flex flex-wrap gap-2">
               <button disabled={busy} onClick={()=>void stopSession(false)}>{tr('Зупинити / повторити спробу','Stop / retry')}</button>
@@ -702,12 +782,20 @@ function App() {
           </section>
           <section><div className="section-header"><h2>{tr('Активний профіль','Active profile')}</h2><Status tone={live==='ready'?'good':'neutral'}>{serverState}</Status></div>
           {['config','profiles','client_profiles','port'].map(key=><div className="check" key={key}><strong>{tr(fields[key][0],fields[key][1])}</strong><small>{String(settings[key] || tr('Типове значення','Default'))}</small></div>)}</section>
-          <section><div className="section-header"><h2>{tr('Резервні копії','Backups')}</h2></div>
+          <section><div className="section-header"><h2>{tr('Резервні копії','Backups')}</h2>
+            <button disabled={busy||!project.details.rollback} onClick={()=>setConfirmation('rollback')}>{tr('Відновити попереднє встановлення','Restore previous installation')}</button>
+          </div>
           {!project.details.backups.length&&<p>{tr('Копії з’являться після першого локального встановлення.','Backups appear after the first local deployment.')}</p>}
           {project.details.backups.map(path=><button className="project-card" key={path} onClick={()=>void reveal(path)}>{nameOf(path)}</button>)}</section>
         </>}
+        {project && page==='workshop' && !busy && selectedReport && operation(selectedReport)}
         {project && page==='workshop' && <section><h2>Workshop · {(checkedItem?.input === settings.workshop && checkedItem?.title) || String(settings.workshop_title || settings.workshop || '-')}</h2>
           <p>{project.details.published.buildId ? tr('Остання підтверджена публікація','Last confirmed publication') + ' · ' + project.details.published.buildId : tr('Публікацію ще не підтверджено','Awaiting confirmed publication')}</p>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={busy||!project.details.localBuild.buildId||project.details.sourcesChanged!==false||!settings.workshop} onClick={()=>setConfirmation('publish')}>{tr('Опублікувати перевірену збірку','Publish tested build')}</button>
+            {project.details.publication.status === 'failed' && <button disabled={busy} onClick={()=>void start('retry-publish')}>{tr('Повторити публікацію','Retry publication')}</button>}
+            {['pending','uncertain'].includes(project.details.publication.status || '') && <span>{tr('Перевір результат у Steam','Check the result in Steam')}</span>}
+          </div>
           {(!settings.workshop || project.details.workshopDraft.status) && <fieldset disabled={busy}>
             {form(['workshop_title','workshop_description','workshop_preview','workshop_visibility'])}
             <button className="primary" disabled={project.details.sourcesChanged !== false || !settings.steam_owner
@@ -735,6 +823,7 @@ function App() {
             <section>
               {settingsGroup===2 ? dependencies() : (()=>{const group=groups[settingsGroup>2?settingsGroup-1:settingsGroup]
                 const keys=group.basic.filter(key=>key!=='base' && !(settings.remote_files_only && ['remote_keys','remote_service','remote_readiness'].includes(key)))
+                if (settingsGroup===0) return <>{addonEditor()}{advanced && form(group.advanced)}</>
                 return form(advanced?[...keys,...group.advanced]:keys)})()}
             </section>
             <div className="settings-top">
@@ -757,24 +846,47 @@ function App() {
     </div>
     <footer>
       {!toolPage && <LogDrawer open={showLog} toggle={()=>setShowLog(false)} entries={entries} logs={project?.details.logs||[]} busy={busy} read={path=>void readLog(path)} tr={tr}/>}
-      <div className="footer-row"><span aria-live="polite">{showModels ? modelStatus : showTextures ? textureStatus : stageText}</span>
+      {page!=='overview' && <div className="footer-row"><span aria-live="polite">{showModels ? modelStatus : showTextures ? textureStatus : stageText}</span>
         {!toolPage&&busy&&<progress aria-label={tr('Прогрес операції','Operation progress')} max={5} value={run?.stage??0}/>}
-        {!toolPage && <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button>}</div>
+        {!toolPage && <button className="subtle ml-auto" aria-expanded={showLog} onClick={()=>setShowLog(!showLog)}><Terminal size={15}/>{tr('Деталі','Details')}</button>}</div>}
     </footer>
     {(wizard !== undefined || confirmation) && <div className="overlay" onKeyDown={e=>{if(e.key==='Escape'){setWizard(undefined);setConfirmation(undefined)}}}><div role="dialog" aria-modal="true" aria-label={tr('Налаштування або підтвердження','Setup or confirmation')} className="modal">
       {wizard !== undefined ? <>
-        <p>{tr('Це середовище можна використовувати для всіх проєктів.','Reuse this environment for all your projects.')}</p>
-        <h2>{wizard+1}/4 · {setupGroup && wizard<3 ? local(setupGroup.title) : tr('Перевірка готовності','Readiness check')}</h2>
-        <div className="modal-content">{wizard<3 && setupGroup ? form(wizard===1 ? [...setupGroup.basic,'client_mods_root'] : setupGroup.basic) : readiness()}</div>
-        <div className="modal-actions"><button autoFocus onClick={()=>setWizard(undefined)}>{tr('Скасувати','Cancel')}</button>{wizard===0 && <button onClick={()=>void detect()}>{tr('Знайти DayZ','Detect DayZ')}</button>}
-          {wizard>0 && <button onClick={()=>setWizard(wizard-1)}>{tr('Назад','Back')}</button>}
-          {wizard<3 ? <button className="primary" onClick={()=>{setWizard(wizard+1);if(wizard===2)void refresh().catch(flagError)}}>{tr('Далі','Next')}</button> :
-          <button className="primary" disabled={project?.details.checks.some(check=>!check.ok)} onClick={()=>void saveSettings()}>{tr('Зберегти','Save')}</button>}</div>
+        <h2>{setupSteps[wizard]}</h2>
+        <small>{wizard + 1} / {setupSteps.length}</small>
+        <fieldset className="modal-content" disabled={busy}>
+          {wizard === 0 && <>
+            <label>{tr('Папка вихідних файлів','Source folder')}</label>
+            <div className="setup-folder">
+              <span className="path" title={project?.root}>{project?.root}</span>
+              <button onClick={()=>void chooseProject()}>{tr('Вибрати папку','Choose folder')}</button>
+            </div>
+            {project && addonEditor()}
+          </>}
+          {wizard === 1 && <>
+            {form(['tools', 'addon_builder', 'copy_server', 'copy_client', ...(settings.copy_server ? ['server'] : []), ...(settings.copy_client ? ['client'] : [])])}
+            <button onClick={()=>void detect()}>{tr('Знайти DayZ та AddonBuilder','Detect DayZ and AddonBuilder')}</button>
+          </>}
+          {wizard === 2 && <>
+            {form(settings.sign ? ['sign', 'private', 'public'] : ['sign'])}
+            {settings.sign && <div className="flex flex-wrap gap-2">
+              <input aria-label={tr('Назва пари ключів','Key pair name')} placeholder={tr('Назва пари ключів','Key pair name')} value={keyName} onChange={event=>setKeyName(event.target.value)}/>
+              <button disabled={!keyName.trim()} onClick={()=>void generateKeys()}>{tr('Створити пару ключів','Generate key pair')}</button>
+            </div>}
+          </>}
+          {notice && <p role="status">{notice}</p>}
+        </fieldset>
+        <div className="modal-actions">
+          <button onClick={()=>{setWizard(undefined);setNotice('')}}>{tr('Закрити','Close')}</button>
+          {wizard>0 && <button disabled={busy} onClick={()=>{setWizard(wizard-1);setNotice('')}}>{tr('Назад','Back')}</button>}
+          {wizard<2 ? <button className="primary" disabled={busy || !project || !addonFolders(settings).length} onClick={()=>{setWizard(wizard+1);setNotice('')}}>{tr('Далі','Next')}</button> :
+            <button className="primary" disabled={busy} onClick={()=>void saveSettings(true)}>{tr('Зберегти проєкт','Save project')}</button>}
+        </div>
       </> : <>
         <h2>{confirmation && local(operationNames[confirmation])}</h2>
         <p>{confirmation==='publish'? 'Workshop · '+String(settings.workshop) + ' · ' + project?.details.localBuild.buildId
           : confirmation==='create-workshop' ? String(settings.workshop_title || '') + ' · ' + (project?.details.localBuild.buildId || '')
-          : tr('Тестове середовище зупиниться, щоб відновити файли мода.','The test environment will stop before the previous mod files are restored.')}</p>
+          : tr('Відновити файли з попереднього встановлення?','Restore the files from the previous installation?')}</p>
         <div className="modal-actions"><button autoFocus onClick={()=>setConfirmation(undefined)}>{tr('Скасувати','Cancel')}</button><button className="primary" onClick={()=>confirmation&&void start(confirmation)}>{tr('Підтвердити','Confirm')}</button></div>
       </>}
     </div></div>}

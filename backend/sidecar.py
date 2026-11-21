@@ -14,13 +14,15 @@ from pathlib import Path
 
 from console import ACTIONS, command as shell_command
 from test_workflow import MACHINE, TestPipeline
+from quick_build import QuickPipeline
 
 from model_export import export_model, read_glb
 from p3d_preview import preview_p3d
 from texture_export import convert_textures
 from export_folders import can_reveal, install_directory, output_folder
 from locale_studio import set_language, tr
-from pipeline import STORE, defaults, detect_installs, lines, load, operation_lock, require, required_addons, save
+from pipeline import (STORE, Pipeline, addon_info, addon_options, defaults, detect_installs, discover, lines,
+                      load, operation_lock, require, required_addons, save)
 from remote import LinuxDayZ, select_build
 
 
@@ -67,12 +69,16 @@ def optional(path, fallback):
         return fallback
 
 
+PROJECT_ONLY = {'tools', 'addon_builder', 'server', 'client', 'private', 'public', 'sign'}
+
+
 def project(root):
     if not root.is_dir():
         raise FileNotFoundError(root)
     configured = state(root) / 'project.json'
     values = defaults(root)
-    shared = optional(STORE / 'environment.json', {})
+    shared = {key: value for key, value in optional(STORE / 'environment.json', {}).items()
+              if key not in PROJECT_ONLY}
     saved = optional(configured, {})
     values.update(saved)
     if shared and not saved.get('environment_override'):
@@ -80,6 +86,10 @@ def project(root):
             values['environment_override'] = True
         else:
             values.update(shared)
+    values.setdefault('copy_server', True)
+    values.setdefault('copy_client', True)
+    values.setdefault('addon_options', '')
+    values.setdefault('addon_builder', '')
     values.setdefault('client_mods_root', '')
     values.setdefault('connection_timeout', '120')
     values.setdefault('environment_override', False)
@@ -131,7 +141,7 @@ def readiness(root, settings):
         return ', '.join(addons)
 
     def tools():
-        tool = pipeline.tools / 'Bin/AddonBuilder/AddonBuilder.exe'
+        tool = pipeline.addon_builder
         if not tool.is_file():
             raise FileNotFoundError(tool)
         return pipeline.tools
@@ -167,7 +177,7 @@ def recent_operations(directory):
             if (item := optional(path, None))]
 
 
-def details(root, settings):
+def details(root, settings, verified_inputs=None):
     directory = state(root)
     tested = optional(directory / 'tested.json', {})
     builds = []
@@ -212,9 +222,9 @@ def details(root, settings):
                 except (OSError, ValueError) as error:
                     row.update(available=False, error=str(error))
                 dependencies_state.append(row)
-        if tested or published or local:
+        if tested or published or local or verified_inputs:
             try:
-                inputs = pipeline.build_inputs()
+                inputs = verified_inputs or pipeline.build_inputs()
             except (OSError, ValueError):
                 pass
         if tested.get('inputs') and inputs:
@@ -275,7 +285,7 @@ def remote_manifest(directory, settings):
     try:
         return select_build(directory, settings, load, item)
     except FileNotFoundError:
-        raise ValueError(tr('Спочатку створи й перевір збірку через F5.', 'Create and verify a build with F5 first.')) from None
+        raise ValueError(tr('Спочатку збери пакет через F5 або запусти тест, якщо вибрано Workshop.', 'Build with F5 first, or run the test if Workshop is selected.')) from None
 
 
 def remote_profile(settings):
@@ -403,7 +413,10 @@ def generate_keys(root, settings, name):
         raise ValueError(tr('Допустимі латинські літери, цифри, дефіс і підкреслення.',
                             'Use letters, numbers, hyphens or underscores for the key name.'))
     with operation_lock():
-        pipeline = TestPipeline(root, settings, lambda *args: None, lambda *args: None, {})
+        if not settings.get('tools', '').strip():
+            raise ValueError(tr('Вкажи папку DayZ Tools.', 'Choose the DayZ Tools folder.'))
+        pipeline = Pipeline(root, {**settings, 'copy_server': False, 'copy_client': False},
+                            log=lambda *_: None, quick=True)
         directory = pipeline.state / 'signing'
         directory.mkdir(exist_ok=True)
         target = directory / name
@@ -448,7 +461,7 @@ def load_checkpoint(directory, filename, hint):
 
 def operate(root, request, emit, report_only=False):
     action = request['action']
-    if action not in ('build', 'test', 'deploy', 'launch', 'retry', 'rollback', 'publish', 'retry-publish',
+    if action not in ('quick', 'build', 'test', 'deploy', 'launch', 'retry', 'rollback', 'publish', 'retry-publish',
                       'remote', 'remote-check', 'create-workshop'):
         raise ValueError(action)
     settings = request.get('settings')
@@ -481,10 +494,16 @@ def operate(root, request, emit, report_only=False):
             settings = selected['settings']
         try:
             progress(0, ('Перевіряю налаштування', 'Checking project settings'))
-            validate_project(root, settings)
-            if 'settings' in request:
-                save_settings(root, settings)
-            pipeline = TestPipeline(root, settings, log, progress, report)
+            previous = optional(state(root) / 'previous.json', {}) if action == 'rollback' else {}
+            quick_rollback = previous.get('mode') == 'quick'
+            if action != 'quick' and not quick_rollback:
+                validate_project(root, settings)
+                if 'settings' in request:
+                    save_settings(root, settings)
+            if action == 'quick' or quick_rollback:
+                pipeline = QuickPipeline(root, settings, log, progress, rollback=quick_rollback)
+            else:
+                pipeline = TestPipeline(root, settings, log, progress, report)
             manifest = None
             retry = load_checkpoint(pipeline.state, 'retry.json', (
                 'Немає перерваного оновлення. Запусти update.', 'There is no interrupted update. Run update.')) if action == 'retry' else None
@@ -494,7 +513,22 @@ def operate(root, request, emit, report_only=False):
                 workshop_item(settings['workshop'])
                 if not re.fullmatch(r'[0-9]{17}', str(settings['steam_owner'])):
                     raise ValueError(tr('Вкажи SteamID64 власника.', 'Enter the owner SteamID64.'))
-            if action == 'test':
+            if action == 'quick':
+                pipeline.check()
+                if 'settings' in request:
+                    save(state(root) / 'project.json', settings)
+                manifest = pipeline.build()
+                pipeline.verify(manifest)
+                report.update(built=True, signed=manifest['signed'], files=list(manifest['files']), buildId=manifest['id'])
+                updated = pipeline.install_local(manifest)
+                report.update(installed=bool(updated), updated=updated)
+                try:
+                    save(pipeline.state / 'quick-ready.json', dict(buildId=manifest['id'], date=manifest['created']))
+                except OSError as error:
+                    log(tr('Warning: Не вдалося оновити список збірок для F6.',
+                           'Warning: Could not update the build selection for F6.'))
+                    log(error)
+            elif action == 'test':
                 (pipeline.state / 'retry.json').unlink(missing_ok=True)
                 manifest = pipeline.test(publish_after=publish_automatically)
             elif action == 'deploy':
@@ -517,9 +551,12 @@ def operate(root, request, emit, report_only=False):
             elif action == 'rollback':
                 deployment = optional(pipeline.state / 'deployment.json', {})
                 report['buildId'] = deployment.get('manifest', {}).get('id')
-                pipeline.rollback()
-                for name in ('retry.json', 'deployment.json', 'tested.json', 'local-ready.json'):
-                    (pipeline.state / name).unlink(missing_ok=True)
+                if quick_rollback:
+                    pipeline.rollback(quick=True)
+                else:
+                    pipeline.rollback()
+                    for name in ('retry.json', 'deployment.json', 'tested.json', 'local-ready.json'):
+                        (pipeline.state / name).unlink(missing_ok=True)
             elif action in ('publish', 'retry-publish'):
                 publish(pipeline, load_checkpoint(pipeline.state, 'tested.json', (
                     'Потрібна локально перевірена збірка. Запусти update.', 'Run update to create a locally verified build.')),
@@ -581,7 +618,7 @@ def operate(root, request, emit, report_only=False):
             save(state(root) / 'operations' / (stamp + '.json'), report)
     if report_only:
         return report
-    result = details(root, settings)
+    result = details(root, settings, manifest['inputs']) if action == 'quick' and report['built'] else details(root, settings)
     result['currentOperation'] = report
     return result
 
@@ -631,6 +668,31 @@ def dispatch(request, emit):
         if command == 'open':
             save(recent_file(), {'project': str(root)})
         return result
+    if command in ('scanAddons', 'addonInfo'):
+        settings = request['settings']
+        if command == 'scanAddons':
+            settings = {**settings, 'addons': '\n'.join(discover(root))}
+        options = addon_options(settings)
+        return [addon_info(root, folder, settings, options) for folder in lines(settings['addons'])]
+    if command == 'saveQuickToggles':
+        with operation_lock():
+            selected = project(root)
+            if not selected['configured']:
+                raise ValueError(tr('Спочатку збережи проєкт у майстрі.', 'Save the project in the setup wizard first.'))
+            settings = selected['settings']
+            for key in ('copy_server', 'copy_client', 'sign'):
+                if key in request:
+                    if type(request[key]) is not bool:
+                        raise ValueError(key)
+                    settings[key] = request[key]
+            save(state(root) / 'project.json', settings)
+        return None
+    if command == 'saveQuick':
+        with operation_lock():
+            settings = request['settings']
+            QuickPipeline(root, settings).check()
+            save_settings(root, settings)
+        return details(root, settings)
     if command == 'serverStatus':
         from pipeline import windows_args
         settings = request['settings']
@@ -853,7 +915,7 @@ def terminal(arguments):
 
     cli = '.\\dayz-backend.exe'
     examples = tr('Приклади', 'Examples') + '\n' + '\n'.join((
-        f'  {cli} --project "D:\\Mods\\My Mod" update',
+        f'  {cli} --project "D:\\Mods\\My Mod" quick',
         f'  {cli} --project "D:\\Mods\\My Mod" remote --build-id 20261115-112233-aaaabbbb',
         f'  {cli} --recent --json status',
         f'  {cli} --recent config --set publish_workshop true',

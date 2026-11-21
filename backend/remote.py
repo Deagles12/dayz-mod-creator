@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from pipeline import HIDDEN
@@ -16,9 +17,25 @@ def select_build(state, settings, read, item=None):
         except FileNotFoundError:
             record = read(state / 'workshop-confirmed.json')
         if record['status'] != 'confirmed' or record['item'] != str(item):
-            raise ValueError('Run F5 to confirm a build for the selected Workshop item.')
+            raise ValueError('Confirm a build for the selected Workshop item.')
     else:
-        record = read(state / 'local-ready.json')
+        candidates = []
+        for filename in ('quick-ready.json', 'local-ready.json'):
+            try:
+                candidates.append(read(state / filename))
+            except FileNotFoundError:
+                continue
+        if not candidates:
+            raise FileNotFoundError(state / 'quick-ready.json')
+        def created(record):
+            try:
+                if record.get('date'):
+                    return datetime.fromisoformat(record['date']).timestamp()
+                return datetime.strptime(record['buildId'][:15], '%Y%m%d-%H%M%S').timestamp()
+            except (KeyError, TypeError, ValueError):
+                return float('-inf')
+
+        record = max(candidates, key=created)
     build_id = record.get('buildId', '')
     if not isinstance(build_id, str) or not re.fullmatch(r'[0-9]{8}-[0-9]{6}-[a-f0-9]{8}', build_id):
         raise ValueError('Run F5 to create a verified build.')

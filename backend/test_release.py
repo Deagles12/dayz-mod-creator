@@ -144,7 +144,7 @@ class Releases(unittest.TestCase):
             publish(pipeline, {'id': BUILD}, retry=True)
         pipeline.publish.assert_called_once()
 
-    def test_f5_publishes_the_exact_locally_ready_manifest(self):
+    def test_explicit_update_publishes_the_exact_locally_ready_manifest(self):
         manifest = {'id': BUILD}
         pipeline = Mock(state=self.root)
         pipeline.test.return_value = manifest

@@ -109,8 +109,8 @@ class TestPipeline(Pipeline):
         if (manifest.get('id') != package.parent.name or
                 load(require(package.parent / 'manifest.json')) != manifest or
                 manifest.get('inputs') != self.build_inputs()):
-            raise ValueError(tr('Вихідні файли або параметри змінилися. Створи нову збірку через F5.',
-                                'Sources or build settings changed. Create a new build with F5.'))
+            raise ValueError(tr('Вихідні файли або параметри змінилися. Збери новий тестовий пакет.',
+                                'Sources or build settings changed. Build a new test package.'))
         return package
 
     def package_checkpoint(self, manifest):

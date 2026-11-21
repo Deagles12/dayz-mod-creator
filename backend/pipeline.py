@@ -115,12 +115,37 @@ def discover(root):
         folders[:] = [name for name in folders if name.lower() not in ignored
                       and not name.startswith(('.', '@')) and not linked(parent / name)
                       and len(parent.relative_to(root).parts) < 5]
-        if 'config.cpp' in files and not linked(parent / 'config.cpp'):
-            source = (parent / 'config.cpp').read_text(encoding='utf-8-sig', errors='replace')
-            if re.search(r'\bclass\s+CfgPatches\b', source, re.I):
+        config = parent / 'config.cpp'
+        if config.is_file() and not linked(config):
+            source = config.read_text(encoding='utf-8-sig', errors='replace')
+            if re.search(r'\bclass\s+CfgPatches\b|(?m:^\s*#include\s+)', source, re.I):
                 candidates.append(parent.relative_to(root).as_posix())
-                folders[:] = []
     return sorted(candidates)
+
+
+def addon_options(settings):
+    try:
+        options = json.loads(settings.get('addon_options') or '{}')
+        if not isinstance(options, dict) or any(
+                not isinstance(values, dict) or any(not isinstance(value, str) for value in values.values())
+                for values in options.values()):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError(tr('Виправ параметри назв і префіксів аддонів.',
+                            'Correct the addon names and prefixes.')) from None
+    return {Path(entry).as_posix(): {key: value.strip() for key, value in values.items() if value.strip()}
+            for entry, values in options.items() if any(value.strip() for value in values.values())}
+
+
+def addon_info(root, relative, settings, options):
+    folder = (root / relative).resolve()
+    marker = folder / '$PBOPREFIX$'
+    declared = marker.read_text(encoding='utf-8-sig').strip() if folder.is_relative_to(root) and marker.is_file() else ''
+    configured = options.get(Path(relative).as_posix(), {})
+    single = len(lines(settings['addons'])) == 1
+    name = configured.get('name') or (settings.get('addon_name', '').strip() if single else '') or folder.name
+    prefix = configured.get('prefix') or (settings.get('prefix', '').strip() if single else '')
+    return dict(path=relative, name=name, prefix=prefix or declared or name, declared=declared)
 
 
 def steam_installs():
@@ -168,7 +193,7 @@ def defaults(root):
     addons = discover(root)
     source = project.get('SourceDir')
     if source and (root / source / 'config.cpp').is_file():
-        addons = [source]
+        addons = list(dict.fromkeys([Path(source).as_posix(), *addons]))
     metadata = next((name for name in ('mod.cpp', 'Source/mod.cpp', 'mod/mod.cpp')
                      if (root / name).is_file()), '')
     inferred_pack = not any(any(path.suffix.lower() in {'.p3d', '.rtm'}
@@ -198,7 +223,7 @@ def defaults(root):
                 server_args='-dologs\n-adminlog\n-freezecheck',
                 client_args='', client_profiles='', pack=bool(project.get('PackOnly', inferred_pack)),
                 shared=bool(project.get('LoadOnClient', True)), separate=True,
-                sign=bool(project.get('SignPbo', False)),
+                sign=bool(project.get('SignPbo', True)),
                 private=project.get('PrivateKey', ''), public=project.get('PublicKey', ''),
                 prep_exe='', prep_args='', extra='', workshop='', steam_owner='', notes='')
 
@@ -213,11 +238,13 @@ def require(path):
     return path
 
 
-def transact(changes):
+def transact(changes, before_copy=None, verify=None):
     """Each tuple is (target, source or None, persistent backup)."""
     prepared = []
     try:
         for target, source, backup in changes:
+            if before_copy:
+                before_copy(target)
             target.parent.mkdir(parents=True, exist_ok=True)
             stage = target.with_name('.dayz-stage-' + uuid.uuid4().hex)
             old = target.with_name('.dayz-old-' + uuid.uuid4().hex)
@@ -246,16 +273,29 @@ def transact(changes):
             if has_source:
                 stage.rename(target)
                 item[5] = True
-    except BaseException:
+        if verify:
+            verify()
+    except BaseException as error:
+        restore_errors = []
         for target, stage, old, _, moved, installed in reversed(prepared):
-            if installed:
-                target.rename(stage)
-            if moved:
-                old.rename(target)
+            try:
+                if installed:
+                    target.rename(stage)
+                if moved:
+                    old.rename(target)
+            except OSError as restore_error:
+                restore_errors.append(str(restore_error))
+        if restore_errors:
+            raise RuntimeError(tr('Не вдалося повністю відновити файли. Резервні копії: {}',
+                                  'Some files could not be restored. Backups: {}').format(
+                ', '.join(str(copy) for _, _, copy in changes)) + '\n' + '\n'.join(restore_errors)) from error
         raise
     finally:
         for _, stage, _, _, _, _ in prepared:
-            remove(stage)
+            try:
+                remove(stage)
+            except OSError:
+                pass
     for _, _, old, _, _, _ in prepared:
         try:
             remove(old)
@@ -271,7 +311,7 @@ def remove(path):
 
 
 class Pipeline:
-    def __init__(self, root, settings, log=print, progress=lambda *args: None):
+    def __init__(self, root, settings, log=print, progress=lambda *args: None, *, quick=False):
         self.root = root.resolve()
         self.s = settings
         self.log = log
@@ -279,18 +319,21 @@ class Pipeline:
         self.state = STORE / 'projects' / hashlib.sha256(str(self.root).casefold().encode()).hexdigest()[:20]
         self.state = self.state.resolve()
         self.state.mkdir(parents=True, exist_ok=True)
-        self.server = self.path('server')
-        self.client = self.path('client')
+        self.server = self.path('server') if not quick or settings.get('copy_server', True) else None
+        self.client = self.path('client') if not quick or settings.get('copy_client', True) else None
         self.tools = self.path('tools')
-        self.profiles = self.path('profiles', self.server)
+        self.profiles = None if quick else self.path('profiles', self.server)
         self.mod = settings['mod']
         if not re.fullmatch(r'@[\w-]+', self.mod):
             raise ValueError(tr('Папка мода має формат @MyMod.', 'The mod folder must use the @MyMod format.'))
         if any(';' in str(path) for path in (self.server, self.client)):
             raise ValueError(tr('Шляхи сервера та клієнта не можуть містити крапку з комою.', 'Server and client paths cannot contain semicolons.'))
-        self.targets = [self.server / self.mod]
-        if settings['shared'] and settings['separate'] and self.client != self.server:
-            self.targets.append(self.client / self.mod)
+        if quick:
+            self.targets = list(dict.fromkeys(path / self.mod for path in (self.server, self.client) if path))
+        else:
+            self.targets = [self.server / self.mod]
+            if settings['shared'] and settings['separate'] and self.client != self.server:
+                self.targets.append(self.client / self.mod)
 
     def path(self, key, base=None):
         value = self.s[key].strip()
@@ -317,14 +360,49 @@ class Pipeline:
                 timer.cancel()
         return '\n'.join(output)
 
+    @property
+    def addon_builder(self):
+        if self.s.get('addon_builder', '').strip():
+            return self.path('addon_builder')
+        return self.tools / 'Bin/AddonBuilder/AddonBuilder.exe'
+
     def check_tools(self):
-        require(self.tools / 'Bin/AddonBuilder/AddonBuilder.exe')
+        builder = self.addon_builder
+        if not builder.is_file():
+            raise FileNotFoundError(tr('Не знайдено AddonBuilder: {}', 'AddonBuilder not found: {}').format(builder))
         if self.s['sign']:
             for name in ('DSSignFile', 'DSCheckSignatures'):
                 require(self.tools / f'Bin/DsUtils/{name}.exe')
+            if not all(self.s.get(key, '').strip() for key in ('private', 'public')):
+                raise ValueError(tr('Вибери або створи пару ключів .biprivatekey та .bikey.',
+                                    'Choose or generate a .biprivatekey and .bikey pair.'))
             private, public = (require(self.path(key)) for key in ('private', 'public'))
             if private.suffix.lower() != '.biprivatekey' or public.suffix.lower() != '.bikey' or private.stem != public.stem:
                 raise ValueError(tr('Вибери пару однойменних .biprivatekey та .bikey.', 'Choose a matching .biprivatekey and .bikey pair.'))
+
+    def addon_specs(self):
+        sources = lines(self.s['addons'])
+        if not sources:
+            raise ValueError(tr('Додай принаймні один аддон із config.cpp.', 'Add at least one addon with config.cpp.'))
+        options = addon_options(self.s)
+        used_names = set()
+        used_sources = set()
+        for relative in sources:
+            root = (self.root / relative).resolve()
+            if not root.is_relative_to(self.root) or root in used_sources:
+                raise ValueError(tr('Повторна папка аддона або шлях поза вихідною папкою: {}',
+                                    'Duplicate addon folder or path outside the source folder: {}').format(relative))
+            used_sources.add(root)
+            require(root / 'config.cpp')
+            info = addon_info(self.root, relative, self.s, options)
+            name, prefix = info['name'], info['prefix']
+            if not re.fullmatch(r'[\w-]+', name) or name.casefold() in used_names or Path(name + '.pbo').is_reserved():
+                raise ValueError(tr('Некоректна або повторна назва PBO: {}',
+                                    'Invalid or duplicate PBO name: {}').format(name))
+            if any(char in prefix for char in '\r\n\0'):
+                raise ValueError(tr('Некоректний префікс PBO: {}', 'Invalid PBO prefix: {}').format(relative))
+            used_names.add(name.casefold())
+            yield root, name, prefix
 
     def build(self):
         self.check_tools()
@@ -337,62 +415,68 @@ class Pipeline:
         if self.s['prep_exe'].strip():
             self.run([require(self.path('prep_exe')), *lines(self.s['prep_args'])], self.root)
         inputs = self.build_inputs()
-        sources = lines(self.s['addons'])
-        if not sources:
-            raise ValueError(tr('Додай принаймні одну папку зі своїм config.cpp.', 'Add at least one addon directory containing config.cpp.'))
-        used = set()
-        for relative in sources:
-            root = self.root / relative
-            if not root.is_dir() or not root.resolve().is_relative_to(self.root):
-                raise ValueError(tr('Джерело має бути всередині проєкту: {}', 'The source must be inside the project: {}').format(root))
-            require(root / 'config.cpp')
-            source_files = tree(root)
-            sensitive = {'.biprivatekey', '.pem', '.pfx', '.p12', '.key'}
-            ignored = {'.git', '.dayz-studio', '__pycache__', '.venv'}
-            def exclude(directory, names):
-                return {name for name in names if name.lower() in ignored or
-                        name.lower().startswith('.env') or Path(name).suffix.lower() in sensitive}
-            if any(Path(name).suffix.lower() in sensitive for name in source_files):
-                raise ValueError(tr('Прибери приватні ключі з джерела: {}', 'Move private keys out of the addon source: {}').format(root))
-            name = self.s['addon_name'].strip() if len(sources) == 1 else ''
-            name = name or root.name
-            if not re.fullmatch(r'[\w-]+', name) or name.casefold() in used:
-                raise ValueError(tr('Некоректна або повторна назва PBO: {}', 'Invalid or duplicate PBO name: {}').format(name))
-            used.add(name.casefold())
-            prefix_file = root / '$PBOPREFIX$'
-            declared = prefix_file.read_text(encoding='utf-8-sig').strip() if prefix_file.is_file() else ''
-            configured = self.s['prefix'].strip() if len(sources) == 1 else ''
-            if configured and declared and configured != declared:
-                raise ValueError(tr('Prefix відрізняється від $PBOPREFIX$: {}', 'The selected prefix differs from $PBOPREFIX$: {}').format(root))
-            prefix = configured or declared or name
-            dependencies = required_addons(root / 'config.cpp')
-            self.log(f'{name}: requiredAddons ' + ', '.join(sorted(dependencies)))
-            self.log(f'{name}: prefix {prefix}')
-            stage = run / 'stage' / name
-            shutil.copytree(root, stage, ignore=exclude)
-            temp = run / 'temp' / name
-            temp.mkdir(parents=True)
-            args = [self.tools / 'Bin/AddonBuilder/AddonBuilder.exe', stage, addons,
-                    '-prefix=' + prefix, '-temp=' + str(temp), '-toolsDirectory=' + str(self.tools), '-clear']
-            if self.s['pack']:
-                args.append('-packonly')
-            output = self.run(args, run)
-            if re.search(r'(?im)^.*?(?:\[ERROR\]|\berror\s*[:!]|error\s+\d+|build failed)', output):
-                raise RuntimeError(tr('AddonBuilder повідомив про помилку.', 'AddonBuilder reported an error.'))
-            pbo = require(addons / (name + '.pbo'))
-            if not pbo.stat().st_size:
-                raise ValueError(tr('Порожній PBO: {}', 'The PBO is empty: {}').format(pbo))
-            if self.s['sign']:
-                key = self.path('private')
-                self.run([self.tools / 'Bin/DsUtils/DSSignFile.exe', key, pbo], run)
-                require(addons / f'{pbo.name}.{key.stem}.bisign')
-            self.log(tr('Готово: {}', 'Built: {}').format(pbo.name))
+        pbos = []
+        try:
+            for root, name, prefix in self.addon_specs():
+                sensitive = {'.biprivatekey', '.pem', '.pfx', '.p12', '.key'}
+                ignored = {'.git', '.dayz-studio', '__pycache__', '.venv'}
+
+                def exclude(directory, names):
+                    return {name for name in names if name.lower() in ignored or
+                            name.lower().startswith('.env') or Path(name).suffix.lower() in sensitive}
+
+                dependencies = required_addons(root / 'config.cpp')
+                self.log(f'{name}: requiredAddons ' + ', '.join(sorted(dependencies)))
+                self.log(f'{name}: prefix {prefix}')
+                stage = run / 'stage' / name
+                shutil.copytree(root, stage, ignore=exclude)
+                marker = stage / '$PBOPREFIX$'
+                if marker.is_file():
+                    marker.write_text(prefix, encoding='utf-8')
+                temp = run / 'temp' / name
+                temp.mkdir(parents=True)
+                args = [self.addon_builder, stage, addons,
+                        '-prefix=' + prefix, '-temp=' + str(temp), '-toolsDirectory=' + str(self.tools), '-clear']
+                if self.s['pack']:
+                    args.append('-packonly')
+                try:
+                    output = self.run(args, run)
+                except (OSError, RuntimeError) as error:
+                    self.log(error)
+                    raise RuntimeError(tr('AddonBuilder не зміг зібрати {}. Переглянь журнал.',
+                                          'AddonBuilder could not build {}. See the log.').format(name + '.pbo')) from error
+                if re.search(r'(?im)^.*?(?:\[ERROR\]|\berror\s*[:!]|error\s+\d+|build failed)', output):
+                    raise RuntimeError(tr('AddonBuilder повідомив про помилку.', 'AddonBuilder reported an error.'))
+                pbo = require(addons / (name + '.pbo'))
+                if not pbo.stat().st_size:
+                    raise ValueError(tr('Порожній PBO: {}', 'The PBO is empty: {}').format(pbo))
+                pbos.append(pbo)
+                self.log(tr('Готово: {}', 'Built: {}').format(pbo.name))
+        finally:
+            for folder in ('stage', 'temp'):
+                shutil.rmtree(run / folder, ignore_errors=True)
         if self.s['sign']:
-            self.progress(2, ('Перевірка підписів', 'Verifying signatures'))
+            self.progress(2, ('Підпис і перевірка PBO', 'Signing and verifying PBO files'))
+            key = self.path('private')
+            for pbo in pbos:
+                try:
+                    self.run([self.tools / 'Bin/DsUtils/DSSignFile.exe', key, pbo], run)
+                    signature = require(addons / f'{pbo.name}.{key.stem}.bisign')
+                    if not signature.stat().st_size:
+                        raise ValueError(tr('Порожній підпис: {}', 'Empty signature: {}').format(signature))
+                except (OSError, RuntimeError, ValueError) as error:
+                    self.log(error)
+                    raise RuntimeError(tr('Не вдалося підписати PBO: {}',
+                                          'Could not sign PBO: {}').format(pbo.name)) from error
             keys = package / 'Keys'
             keys.mkdir()
             shutil.copy2(self.path('public'), keys)
-            result = self.run([self.tools / 'Bin/DsUtils/DSCheckSignatures.exe', addons, keys], run)
+            try:
+                result = self.run([self.tools / 'Bin/DsUtils/DSCheckSignatures.exe', addons, keys], run)
+            except (OSError, RuntimeError) as error:
+                self.log(error)
+                raise RuntimeError(tr('Не вдалося перевірити підписи PBO.',
+                                      'Could not verify PBO signatures.')) from error
             if re.search(r'(?im)\b(?:bad signature|wrong signature|not signed|verification failed|signature mismatch)\b', result):
                 raise RuntimeError(tr('Перевірка підписів завершилась помилкою.', 'Signature verification failed.'))
         extras = ['meta.cpp'] if (self.root / 'meta.cpp').is_file() else []
@@ -423,7 +507,12 @@ class Pipeline:
 
     def checkpoint_settings(self):
         keys = ('addons','mod','addon_name','prefix','metadata','extra','pack','prep_exe','prep_args','sign','private','public','tools')
-        return {key: self.s.get(key) for key in keys}
+        settings = {key: self.s.get(key) for key in keys}
+        if self.s.get('addon_builder', '').strip():
+            settings['addon_builder'] = str(self.addon_builder)
+        if options := addon_options(self.s):
+            settings['addon_options'] = options
+        return settings
 
     def source_snapshot(self):
         result = {}
@@ -432,6 +521,10 @@ class Pipeline:
             if not path.is_relative_to(self.root):
                 raise ValueError(tr('Джерело має бути в папці проєкту.', 'Source must be in the project folder.'))
             result[folder] = tree(path)
+            if any(Path(name).suffix.lower() in {'.biprivatekey', '.pem', '.pfx', '.p12', '.key'}
+                   for name in result[folder]):
+                raise ValueError(tr('Прибери приватні ключі з джерела: {}',
+                                    'Move private keys out of the addon source: {}').format(path))
         for file in lines(self.s.get('extra', '')):
             result['file:' + file] = digest(require(self.root / file))
         if self.s.get('metadata', '').strip():
@@ -445,7 +538,7 @@ class Pipeline:
             return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
         settings = dict(self.checkpoint_settings())
-        settings['toolHash'] = digest(require(self.tools / 'Bin/AddonBuilder/AddonBuilder.exe'))
+        settings['toolHash'] = digest(require(self.addon_builder))
         if self.s['prep_exe'].strip():
             settings['prepHash'] = digest(require(self.path('prep_exe')))
         if self.s['sign']:
@@ -602,12 +695,13 @@ class Pipeline:
             raise ValueError(tr('Файли збірки змінилися. Збери мод знову.', 'Build files have changed. Build the mod again.'))
         return directory
 
-    def install(self, manifest, dependency_keys=()):
-        self.progress(3, ('Резервна копія та встановлення', 'Backing up and installing'))
+    def install(self, manifest, dependency_keys=(), *, before_copy=None, verify=None, mode=None):
+        if not before_copy:
+            self.progress(3, ('Резервна копія та встановлення', 'Backing up and installing'))
         package = self.verify(manifest)
         backup = self.state / 'backups' / uuid.uuid4().hex
         changes = [(target, package, backup / f'mod-{index}') for index, target in enumerate(self.targets)]
-        keys = list((package / 'Keys').glob('*.bikey'))
+        keys = list((package / 'Keys').glob('*.bikey')) if self.server else []
         keys.extend(dependency_keys)
         known = {}
         for key in keys:
@@ -625,33 +719,38 @@ class Pipeline:
                                     'The server already has a different key named {}. Choose a uniquely named key pair.').format(key.name))
             changes.append((target, key, backup / 'keys' / key.name))
         # Save recovery data before replacing files. The committed pointer moves only after success.
-        if (self.server / 'keys').exists() and linked(self.server / 'keys'):
+        if self.server and ((self.server / 'keys').exists() or (self.server / 'keys').is_symlink()) and linked(self.server / 'keys'):
             raise ValueError(tr('Папка keys сервера є посиланням або junction.', 'The server keys folder is a symbolic link or junction.'))
         backup.mkdir(parents=True)
         records = [dict(target=str(target), backup=str(copy), existed=target.exists())
                    for target, _, copy in changes]
         save(backup / 'recovery.json', records)
-        transact(changes)
-        save(self.state / 'previous.json', dict(records=records))
+        def confirm():
+            if verify:
+                verify()
+            save(self.state / 'previous.json', dict(records=records, mode=mode))
+
+        transact(changes, before_copy=before_copy, verify=confirm)
         self.log(tr('Резервна копія: {}', 'Backup: {}').format(backup))
 
-    def rollback(self):
+    def rollback(self, *, quick=False):
         self.progress(3, ('Відкат', 'Rolling back'))
-        server, client, *_ = self.game_settings()
         record_file = require(self.state / 'previous.json')
         records = load(record_file)['records']
         stamp = self.state / 'backups' / uuid.uuid4().hex
         changes = []
         for index, record in enumerate(records):
             target, backup = Path(record['target']), Path(record['backup'])
-            if target not in self.targets and not (target.parent == self.server / 'keys' and target.suffix == '.bikey'):
+            if target not in self.targets and not (self.server and target.parent == self.server / 'keys' and target.suffix == '.bikey'):
                 raise ValueError(tr('Налаштування шляхів змінилися з моменту встановлення.', 'Installation paths have changed since deployment.'))
             if not backup.resolve().is_relative_to((self.state / 'backups').resolve()):
                 raise ValueError(tr('Некоректний шлях резервної копії.', 'Invalid backup path.'))
             if record['existed'] and not backup.exists():
                 raise FileNotFoundError(tr('Втрачено резервну копію: {}', 'Backup is missing: {}').format(backup))
             changes.append((target, backup if record['existed'] else None, stamp / str(index)))
-        self.stop(server, client)
+        if not quick:
+            server, client, *_ = self.game_settings()
+            self.stop(server, client)
         transact(changes)
         record_file.unlink()
         self.log(tr('Попередню версію відновлено. Налаштування та сховище місії залишились у профілі сервера.', 'Previous mod files restored. Server profile and mission data remain in place.'))

@@ -191,3 +191,44 @@ button:active:not(:disabled) { filter: brightness(.92); }
   .output-folder button { justify-self: start; }
   .settings-top,.dependency-add { align-items: flex-start; flex-wrap: wrap; }
 }
+
+/* Quick build and project setup */
+.app.app-quick { grid-template-rows: 36px minmax(0, 1fr) auto; }
+.quick-build {
+  max-width: 900px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+.quick-build .overview-head { margin: 0; }
+.quick-controls, .quick-result {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+.quick-controls .primary { padding: 10px 16px; font-weight: 700; }
+.quick-options { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
+.quick-options label { display: flex; align-items: center; gap: var(--space-2); }
+.quick-options input { accent-color: var(--accent); }
+.quick-result, .quick-log { border-top: 1px solid var(--stroke); padding-top: var(--space-3); }
+.quick-result ul { padding: 0 0 0 1.2rem; margin: 0; list-style: disc; overflow-wrap: anywhere; }
+.quick-result p { margin: 0; }
+.quick-result progress { width: 100%; accent-color: var(--accent); }
+.quick-log, .setup-folder { display: flex; align-items: center; gap: var(--space-3); justify-content: space-between; }
+.quick-log code { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.setup-folder { flex-wrap: wrap; margin-top: var(--space-2); }
+.addon-list { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.addon-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+}
+.addon-row strong { overflow-wrap: anywhere; }
+.addon-row label { display: grid; gap: var(--space-1); }
+.addon-row input { min-width: 0; }
+@media (max-width: 600px) {
+  .addon-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .addon-row strong { grid-column: 1 / -1; }
+}

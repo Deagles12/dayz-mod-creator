@@ -1,7 +1,7 @@
 export type Lang = 'uk' | 'en'
 export type Pair = [string, string]
 export const pages = [
-  ['overview', 'Огляд', 'Overview'], ['projects', 'Проєкти', 'Projects'], ['build', 'Збірка', 'Build'],
+  ['overview', 'Швидка збірка', 'Quick build'], ['projects', 'Проєкти', 'Projects'], ['build', 'Збірка', 'Build'],
   ['server', 'Тестовий сервер', 'Test server'], ['workshop', 'Workshop', 'Workshop'], ['settings', 'Налаштування', 'Settings'], ['media', 'Моделі й текстури', 'Models and textures'],
 ] as const
 export type Page = typeof pages[number][0]
